@@ -1,0 +1,12 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}",
+    "cmake.configureArgs": [
+        "-DCMAKE_TOOLCHAIN_FILE=${workspaceFolder}/cross.cmake"
+    ],
+    "files.associations": {
+        "usbg.h": "c",
+        "ioctl.h": "c",
+        "accessory.h": "c",
+        "stat.h": "c"
+    }
+}

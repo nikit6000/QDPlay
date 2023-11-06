@@ -1,0 +1,19 @@
+{
+    "configurations": [
+        {
+            "name": "aarch64-linux",
+            "includePath": [
+                "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/include/aarch64-linux-gnu",
+                "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/include",
+                "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/local/include",
+                "${workspaceFolder}/**"
+            ],
+            "defines": [],
+            "compilerPath": "/Users/mac/Documents/hobby/OrangePi/aarch64-unknown-linux-gnu/bin/aarch64-unknown-linux-gnu-gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "linux-gcc-arm64"
+        }
+    ],
+    "version": 4
+}
