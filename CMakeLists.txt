@@ -11,6 +11,8 @@ link_directories(/usr/local/lib)
 
 set(PROJECT_SRC 
     "src/main.c"
+    "src/usb_accessory.c"
+    "src/usb_accessory_worker.c"
 )
 
 set(PROJECT_INC_DIR
@@ -21,4 +23,4 @@ include_directories(${PROJECT_INC_DIR})
 set(ALL_FILES ${PROJECT_SRC})
 
 add_executable(${PROJECT_NAME} ${ALL_FILES})
-target_link_libraries(${PROJECT_NAME} usbgx)
+target_link_libraries(${PROJECT_NAME} usbgx pthread)
