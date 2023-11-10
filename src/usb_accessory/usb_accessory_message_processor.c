@@ -203,16 +203,17 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
     }
 
     if (is_phone_ready) {
-        hu_message_t response_message;
-        memset(&response_message, 0, sizeof(hu_message_t));
-        
-        response_message.flow_id = 0;
-        response_message.app_id = "QDRIVE_ASSISTANT";
-        response_message.logic_id = "phoneready";
+        hu_message_t * response_message = hu_message_init(
+            "QDRIVE_ASSISTANT",
+            "phoneready",
+            0
+        );
 
-        printf("Sending phoneready...\n");
-
-        return usb_accessory_message_send_app_msg(fd, &response_message);
+        if (response_message) {
+            status = usb_accessory_message_send_app_msg(fd, response_message);
+        } else {
+            status = USB_ACCESSORY_MSG_ERR_NO_MEM;
+        }
     }
     
     return status;
