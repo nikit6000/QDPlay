@@ -11,6 +11,12 @@
         "usb_accessory.h": "c",
         "common_header.h": "c",
         "common_comand_header.h": "c",
-        "mirror_support.h": "c"
+        "mirror_support.h": "c",
+        "usb_accessory_message_processor.h": "c",
+        "data_types.h": "c",
+        "comand_types.h": "c",
+        "usb_accessory_worker.h": "c",
+        "fcntl.h": "c",
+        "string.h": "c"
     }
 }

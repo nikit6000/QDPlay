@@ -4,7 +4,7 @@
 #include <usbg/usbg.h>
 #include <stdlib.h>
 #include <string.h>
-#include "usb_accessory.h"
+#include "usb_accessory/usb_accessory.h"
 
 #pragma mark - Defines
 

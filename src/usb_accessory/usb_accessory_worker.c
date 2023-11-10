@@ -9,9 +9,9 @@
 #include <pthread.h>
 #include <stdio.h>
 #include "accessory.h"
-#include "usb_accessory.h"
-#include "usb_accessory_worker.h"
-#include "usb_accessory_message_processor.h"
+#include "usb_accessory/usb_accessory.h"
+#include "usb_accessory/usb_accessory_worker.h"
+#include "usb_accessory/usb_accessory_message_processor.h"
 
 #pragma mark - Private definitions
 

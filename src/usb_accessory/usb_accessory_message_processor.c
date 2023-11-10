@@ -3,10 +3,10 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <errno.h>
-#include "usb_accessory_message_processor.h"
-#include "Messages/messages.h"
-#include "Macros/data_types.h"
-#include "Macros/comand_types.h"
+#include "usb_accessory/usb_accessory_message_processor.h"
+#include "messages/messages.h"
+#include "macros/data_types.h"
+#include "macros/comand_types.h"
 
 void hexdump(void *ptr, int buflen) {
 	unsigned char *buf = (unsigned char*)ptr;

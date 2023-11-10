@@ -11,9 +11,11 @@ link_directories(/usr/local/lib)
 
 set(PROJECT_SRC 
     "src/main.c"
-    "src/usb_accessory.c"
-    "src/usb_accessory_worker.c"
-    "src/usb_accessory_message_processor.c"
+    "src/usb_accessory/usb_accessory.c"
+    "src/usb_accessory/usb_accessory_worker.c"
+    "src/usb_accessory/usb_accessory_message_processor.c"
+    "src/hu_message.c"
+    "src/utils/crc16.c"
 )
 
 set(PROJECT_INC_DIR
