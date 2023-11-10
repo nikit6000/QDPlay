@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 #include "utils/crc16.h"
 #include "utils/common_utils.h"
 
@@ -51,7 +52,7 @@
 } while(0)
 
 #define HU_MESSAGE_PACKET_PUT_STR(cur, x, len)                          do {     \
-    int str_len = strlen(x);                                                     \
+    int str_len = (int)strlen(x);                                                \
     HU_MESSAGE_PACKET_PUT_INT(cur, str_len, len);                                \
     memcpy(cur, x, str_len);                                                     \
     cur += str_len;                                                              \
@@ -59,29 +60,55 @@
 
 #pragma mark - Private methods definition
 
+uint32_t hu_message_calc_len(const hu_message_t* message);
+
 #pragma mark - Internal methods implementation
 
-void hu_message_free(const hu_message_t* message) {
+hu_message_t* hu_message_init(const char * app_id, const char * logic_id, uint8_t data_count, ...) {
+    hu_message_t* message = (hu_message_t*)malloc(sizeof(hu_message_t));
+    
     if (!message) {
-        return;
-    }
-
-    if (message->app_id) {
-        free((void*)message->app_id);
+        return NULL;
     }
     
-    if (message->logic_id) {
-        free((void*)message->logic_id);
+    memset(message, 0, sizeof(hu_message_t));
+    message->app_id = (char*)malloc(strlen(app_id) + 1);
+    message->logic_id = (char*)malloc(strlen(logic_id) + 1);
+    message->data = (hu_message_data_t*)malloc(sizeof(hu_message_data_t*) * data_count);
+    
+    if (!message->app_id || !message->logic_id || (!message->data && data_count > 0)) {
+        hu_message_free(message);
+        
+        return NULL;
     }
-
-    if (message->data) {
-        for (int i = 0; i < message->data_count; i++) {
-            free(message->data[i]);
+    
+    strcpy(message->app_id, app_id);
+    strcpy(message->logic_id, logic_id);
+    
+    va_list arguments;
+     
+    va_start(arguments, data_count);
+    
+    for (uint8_t i = 0; i < data_count; i++) {
+        const char * arg = va_arg(arguments, const char *);
+        
+        message->data[i] = (hu_message_data_t)malloc(strlen(arg) + 1);
+        
+        if (message->data[i] == NULL) {
+            hu_message_free(message);
+            va_end(arguments);
+            
+            return NULL;
         }
-        free(message->data);
+        
+        strcpy(message->data[i], arg);
+        
+        message->data_count++;
     }
-
-    free((void*)message);
+    
+    va_end(arguments);
+    
+    return message;
 }
 
 hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
@@ -125,43 +152,18 @@ hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
     message->data = (hu_message_data_t*)malloc(total_data_count * sizeof(hu_message_data_t));
     HU_MESSAGE_ASSUME_NON_NULL(message->data);
 
-    for (message->data_count; message->data_count < total_data_count; message->data_count++) {
+    for (int i = 0; i < total_data_count; i++) {
         int item_len = 0;
         hu_message_data_t item = NULL;
         
         HU_MESSAGE_PACKET_PARSE_HEX_INT(item_len, uint32_t, cursor, number_buffer);
         HU_MESSAGE_PACKET_PARSE_STR(item, item_len, cursor);
 
-        message->data[message->data_count] = item;
+        message->data[i] = item;
+        message->data_count++;
     }
 
     return message;
-}
-
-uint32_t hu_message_calc_len(const hu_message_t* message) {
-    if (!message) {
-        return 0;
-    }
-
-    uint32_t total_size = 0;
-
-    total_size += HU_MESSAGE_PACKET_MARK_LEN;                 // MARK
-    total_size += sizeof(message->flow_id) << 1;              // FLOW_ID
-    total_size += sizeof(uint32_t) << 1;                      // TOTAL_LEN
-    total_size += sizeof(uint8_t) << 1;                       // APP_ID_LEN 
-    total_size += strlen(message->app_id);                    // APP_ID
-    total_size += sizeof(uint8_t) << 1;                       // LOGIC_ID_LEN
-    total_size += strlen(message->logic_id);                  // LOGIC_ID
-    total_size += sizeof(uint8_t) << 1;                       // DATA_COUNT
-
-    for (int i = 0; i < message->data_count; i++) {
-        total_size += sizeof(uint32_t) << 1;                  // DATA_LEN
-        total_size += strlen(message->data[i]);               // DATA
-    }
-
-    total_size += sizeof(uint16_t) << 1;                       // CRC
-
-    return total_size;
 }
 
 uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len, uint32_t* out_len) {
@@ -205,4 +207,63 @@ uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len, uint
     HU_MESSAGE_PACKET_PUT_INT(cursor, crc, 4);
 
     return data;
+}
+
+void hu_message_free(const hu_message_t* message) {
+    if (!message) {
+        return;
+    }
+
+    if (message->app_id) {
+        free((void*)message->app_id);
+    }
+    
+    if (message->logic_id) {
+        free((void*)message->logic_id);
+    }
+
+    if (message->data) {
+        for (int i = 0; i < message->data_count; i++) {
+            free(message->data[i]);
+        }
+        free(message->data);
+    }
+
+    free((void*)message);
+}
+
+#pragma mark - Private methods implementations
+
+uint32_t hu_message_calc_len(const hu_message_t* message) {
+    if (!message) {
+        return 0;
+    }
+
+    uint32_t total_size = 0;
+
+    total_size += HU_MESSAGE_PACKET_MARK_LEN;                 // MARK
+    total_size += sizeof(message->flow_id) << 1;              // FLOW_ID
+    total_size += sizeof(uint32_t) << 1;                      // TOTAL_LEN
+    total_size += sizeof(uint8_t) << 1;                       // APP_ID_LEN
+
+    if (message->app_id) {
+        total_size += strlen(message->app_id);                // APP_ID
+    }
+    
+    total_size += sizeof(uint8_t) << 1;                       // LOGIC_ID_LEN
+    
+    if (message->logic_id) {
+        total_size += strlen(message->logic_id);              // LOGIC_ID
+    }
+    
+    total_size += sizeof(uint8_t) << 1;                       // DATA_COUNT
+
+    for (int i = 0; i < message->data_count; i++) {
+        total_size += sizeof(uint32_t) << 1;                  // DATA_LEN
+        total_size += strlen(message->data[i]);               // DATA
+    }
+
+    total_size += sizeof(uint16_t) << 1;                       // CRC
+
+    return total_size;
 }
