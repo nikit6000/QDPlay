@@ -2,7 +2,7 @@
 #define _MESSAGES_H_
 
 #include "common_header.h"
-#include "common_comand_ceader.h"
+#include "common_comand_header.h"
 #include "app_message.h"
 #include "app_status.h"
 #include "input_control.h"

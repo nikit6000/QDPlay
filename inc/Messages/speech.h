@@ -10,11 +10,12 @@ typedef struct {
 	/* 072 */ uint32_t channel_config;
 	/* 076 */ uint32_t audio_format;
 	/* 080 */ uint32_t unk[208];
-	/* 288 */ uint32_t no;
-	/* 292 */ uint32_t output_encoding_type;
-	/* 296 */ uint32_t output_sample_rate;
-	/* 300 */ uint32_t output_channel_config;
-	/* 304 */ uint32_t output_audio_format;
+	/* 288 */ uint32_t speech_data_size;
+	/* 292 */ uint32_t no;
+	/* 296 */ uint32_t output_encoding_type;
+	/* 300 */ uint32_t output_sample_rate;
+	/* 304 */ uint32_t output_channel_config;
+	/* 308 */ uint32_t output_audio_format;
 } __attribute__((packed)) speech_t;
 
 #endif /* _SPEECH_H_ */

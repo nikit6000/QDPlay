@@ -8,6 +8,9 @@
         "ioctl.h": "c",
         "accessory.h": "c",
         "stat.h": "c",
-        "usb_accessory.h": "c"
+        "usb_accessory.h": "c",
+        "common_header.h": "c",
+        "common_comand_header.h": "c",
+        "mirror_support.h": "c"
     }
 }

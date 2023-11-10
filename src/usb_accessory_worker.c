@@ -11,6 +11,7 @@
 #include "accessory.h"
 #include "usb_accessory.h"
 #include "usb_accessory_worker.h"
+#include "usb_accessory_message_processor.h"
 
 #pragma mark - Private definitions
 
@@ -124,6 +125,10 @@ void * usb_accessory_worker_configured_thread(void* arg) {
         goto out;
     }
 
+    if (usb_accessory_message_processor_setup(accessory_fd) != USB_ACCESSORY_MSG_OK) {
+        goto flush;
+    }
+
     result = pthread_create(
         &usb_watcher_thread_id,
         NULL,
@@ -136,19 +141,15 @@ void * usb_accessory_worker_configured_thread(void* arg) {
     }
 
     uint8_t buffer[USB_ACCESSORY_WORKER_PACKET_SIZE] = { 0 };
+    
+    printf("Configured device started ...\n");
 
     while (1) {
-        int readed = read(
-            accessory_fd, 
-            buffer, 
-            USB_ACCESSORY_WORKER_PACKET_SIZE
-        );
+        usb_accessory_msg_processor_status_t status;
 
-        if (readed > 0) {
-            printf("Accessory read: %d bytes (%s)\n", readed, buffer);
-        } else if (readed == 0) {
-            printf("Accessory read reach EOF\n");
-        } else {
+        status = usb_accessory_message_processor_handle(accessory_fd);
+
+        if (status != USB_ACCESSORY_MSG_OK) {
             break;
         }
     }
