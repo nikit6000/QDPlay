@@ -4,17 +4,58 @@
 #include <string.h>
 #include <stdio.h>
 #include "utils/crc16.h"
+#include "utils/common_utils.h"
 
 #pragma mark - Private definitions
 
-#define HU_MESSAGE_ASSUME_NON_NULL(x)                               do { if (!x) { goto flush; } } while(0)
-#define HU_MESSAGE_PACKET_MARK                                      "A6A6"
-#define HU_MESSAGE_PACKET_MARK_LEN                                  (4)
-#define HU_MESSAGE_ASSUME_NUM_BUFF_LEN                              (32)  
-#define HU_MESSAGE_PACKET_PARSE_HEX_INT(dest, type, cur, buff)      do { int srt_num_len = sizeof(type) << 1; if (sizeof(buff) < srt_num_len + 1) { goto flush; } memset(buff, 0, sizeof(buff)); memcpy(buff, cur, srt_num_len); dest = (type)strtol(buff, NULL, 16); cur += srt_num_len; } while(0) 
-#define HU_MESSAGE_PACKET_PARSE_STR(dest, len, cur)                 do { dest = (char*)malloc(len + 1); if (!dest) { goto flush; } cur += len; } while(0);
-#define HU_MESSAGE_PACKET_PUT_INT(cur, x)                           do { int srt_num_len = sizeof(x) << 1; snprintf(cur, srt_num_len, "%0*x", srt_num_len, x); cur += srt_num_len; } while(0)
-#define HU_MESSAGE_PACKET_PUT_STR(cur, x)                           do { int str_len = strlen(x); HU_MESSAGE_PACKET_PUT_INT(cur, str_len); memcpy(cur, x, str_len); cur += str_len; } while(0) 
+#define HU_MESSAGE_PACKET_MARK                                          "A6A6"
+#define HU_MESSAGE_PACKET_MARK_LEN                                      (4)
+#define HU_MESSAGE_ASSUME_NUM_BUFF_LEN                                  (32)
+
+#define HU_MESSAGE_ASSUME_NON_NULL(x)                                   do {     \
+    if (!x) {                                                                    \
+        return NULL;                                                             \
+    }                                                                            \
+} while(0)
+
+#define HU_MESSAGE_PACKET_PARSE_HEX_INT(dest, type, cur, buff)          do {     \
+    int srt_num_len = sizeof(type) << 1;                                         \
+    if (sizeof(buff) < srt_num_len + 1) {                                        \
+        if (message) {                                                           \
+            hu_message_free(message);                                            \
+        }                                                                        \
+        return NULL;                                                             \
+    }                                                                            \
+    memset((void*)buff, 0, sizeof(buff));                                        \
+    memcpy((void*)buff, cur, srt_num_len);                                       \
+    dest = (type)strtol((char*)buff, NULL, 16);                                  \
+    cur += srt_num_len;                                                          \
+} while(0) 
+
+#define HU_MESSAGE_PACKET_PARSE_STR(dest, len, cur)                     do {     \
+    dest = (char*)malloc(len + 1);                                               \
+    if (!dest) {                                                                 \
+        if (message) {                                                           \
+            hu_message_free(message);                                            \
+        }                                                                        \
+        return NULL;                                                             \
+    }                                                                            \
+    memset((void*)dest, 0, len + 1);                                             \
+    memcpy((void*)dest, cur, len);                                               \
+    cur += len;                                                                  \
+} while(0);
+
+#define HU_MESSAGE_PACKET_PUT_INT(cur, x, len)                          do {     \
+    common_utils_dec_to_hex((char*)cur, len, x);                                 \
+    cur += len;                                                                  \
+} while(0)
+
+#define HU_MESSAGE_PACKET_PUT_STR(cur, x, len)                          do {     \
+    int str_len = strlen(x);                                                     \
+    HU_MESSAGE_PACKET_PUT_INT(cur, str_len, len);                                \
+    memcpy(cur, x, str_len);                                                     \
+    cur += str_len;                                                              \
+} while(0) 
 
 #pragma mark - Private methods definition
 
@@ -43,7 +84,7 @@ void hu_message_free(const hu_message_t* message) {
     free((void*)message);
 }
 
-const hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
+hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
     HU_MESSAGE_ASSUME_NON_NULL(data);
 
     char number_buffer[HU_MESSAGE_ASSUME_NUM_BUFF_LEN];
@@ -54,7 +95,7 @@ const hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
     uint8_t total_data_count = 0;
 
     if (memcmp(data, HU_MESSAGE_PACKET_MARK, HU_MESSAGE_PACKET_MARK_LEN) != 0) {
-        goto flush;
+        return NULL;
     }
 
     cursor += HU_MESSAGE_PACKET_MARK_LEN;
@@ -67,7 +108,8 @@ const hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
     HU_MESSAGE_PACKET_PARSE_HEX_INT(total_len, uint32_t, cursor, number_buffer);
 
     if (total_len > len) {
-        goto flush;
+        hu_message_free(message);
+        return NULL;
     }
 
     HU_MESSAGE_PACKET_PARSE_HEX_INT(app_id_len, uint8_t, cursor, number_buffer);
@@ -94,23 +136,14 @@ const hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
     }
 
     return message;
-
-flush:
-
-    if (message) {
-        hu_message_free(message);
-    }
-
-    return NULL;
 }
 
-const uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len) {
+uint32_t hu_message_calc_len(const hu_message_t* message) {
     if (!message) {
-        goto flush;
+        return 0;
     }
 
     uint32_t total_size = 0;
-    uint32_t chunked_total_size = 0;
 
     total_size += HU_MESSAGE_PACKET_MARK_LEN;                 // MARK
     total_size += sizeof(message->flow_id) << 1;              // FLOW_ID
@@ -122,11 +155,24 @@ const uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len
     total_size += sizeof(uint8_t) << 1;                       // DATA_COUNT
 
     for (int i = 0; i < message->data_count; i++) {
-        total_size += sizeof(uint8_t) << 1;                   // DATA_LEN
+        total_size += sizeof(uint32_t) << 1;                  // DATA_LEN
         total_size += strlen(message->data[i]);               // DATA
     }
 
     total_size += sizeof(uint16_t) << 1;                       // CRC
+
+    return total_size;
+}
+
+uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len, uint32_t* out_len) {
+    HU_MESSAGE_ASSUME_NON_NULL(message);
+
+    uint32_t total_size = hu_message_calc_len(message);
+    uint32_t chunked_total_size = 0;
+
+    if (out_len) {
+        *out_len = total_size;
+    }
 
     if (chunk_len > 0) {
         chunked_total_size = (total_size / chunk_len) * chunk_len;
@@ -145,28 +191,18 @@ const uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len
     memcpy(cursor, HU_MESSAGE_PACKET_MARK, HU_MESSAGE_PACKET_MARK_LEN);
     cursor += HU_MESSAGE_PACKET_MARK_LEN;
 
-    HU_MESSAGE_PACKET_PUT_INT(cursor, message->flow_id);
-    HU_MESSAGE_PACKET_PUT_INT(cursor, chunked_total_size);
-    HU_MESSAGE_PACKET_PUT_STR(cursor, message->app_id);
-    HU_MESSAGE_PACKET_PUT_STR(cursor, message->logic_id);
-    HU_MESSAGE_PACKET_PUT_INT(cursor, message->data_count);
+    HU_MESSAGE_PACKET_PUT_INT(cursor, message->flow_id, 2);
+    HU_MESSAGE_PACKET_PUT_INT(cursor, chunked_total_size, 8);
+    HU_MESSAGE_PACKET_PUT_STR(cursor, message->app_id, 2);
+    HU_MESSAGE_PACKET_PUT_STR(cursor, message->logic_id, 2);
+    HU_MESSAGE_PACKET_PUT_INT(cursor, message->data_count, 2);
 
     for (int i = 0; i < message->data_count; i++) {
-        HU_MESSAGE_PACKET_PUT_STR(cursor, message->data[i]);
+        HU_MESSAGE_PACKET_PUT_STR(cursor, message->data[i], 8);
     }
 
-    uint8_t crc = crc16_xmodem(data, total_size - 4);
-    HU_MESSAGE_PACKET_PUT_INT(cursor, crc);
+    uint16_t crc = crc16_xmodem(data, total_size - 4);
+    HU_MESSAGE_PACKET_PUT_INT(cursor, crc, 4);
 
     return data;
-
-flush:
-
-    if (data) {
-        free(data);
-    }
-
-    return NULL;
 }
-
-#pragma mark - Private methods implementation

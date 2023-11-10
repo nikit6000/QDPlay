@@ -16,6 +16,7 @@ set(PROJECT_SRC
     "src/usb_accessory/usb_accessory_message_processor.c"
     "src/hu_message.c"
     "src/utils/crc16.c"
+    "src/utils/common_utils.c"
 )
 
 set(PROJECT_INC_DIR

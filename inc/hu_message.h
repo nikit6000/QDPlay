@@ -18,7 +18,8 @@ typedef struct {
 #pragma mark - Internal methods definition
 
 void hu_message_free(const hu_message_t* message);
-const hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len);
-const uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len);
+uint32_t hu_message_calc_len(const hu_message_t* message);
+hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len);
+uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len, uint32_t* out_len);
 
 #endif
