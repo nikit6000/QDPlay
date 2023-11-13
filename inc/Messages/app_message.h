@@ -10,4 +10,8 @@ typedef struct {
 	/* 68 */ uint32_t response_status;
 } __attribute__((packed)) app_message_t;
 
+#pragma mark - Internal methods definitions
+
+void app_message_response_init(app_message_t * obj);
+
 #endif /* _APP_MESSAGE_H_ */

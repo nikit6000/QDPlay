@@ -17,6 +17,12 @@
         "comand_types.h": "c",
         "usb_accessory_worker.h": "c",
         "fcntl.h": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "version.h": "c",
+        "speech.h": "c",
+        "app_status.h": "c",
+        "app_message.h": "c",
+        "land_mode.h": "c",
+        "upgrade.h": "c"
     }
 }

@@ -13,4 +13,8 @@ typedef struct {
 	/* 196 */ uint32_t is_value;
 } __attribute__((packed)) land_mode_t;
 
+#pragma mark - Interal methods definitions
+
+void land_mode_response_init(land_mode_t * obj);
+
 #endif /* _LAND_MODE_H_ */

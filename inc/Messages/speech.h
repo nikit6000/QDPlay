@@ -18,4 +18,8 @@ typedef struct {
 	/* 308 */ uint32_t output_audio_format;
 } __attribute__((packed)) speech_t;
 
+#pragma mark - Interal methods definitions
+
+void speech_response_init(speech_t * obj);
+
 #endif /* _SPEECH_H_ */

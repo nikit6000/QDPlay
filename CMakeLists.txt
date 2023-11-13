@@ -17,6 +17,13 @@ set(PROJECT_SRC
     "src/hu_message.c"
     "src/utils/crc16.c"
     "src/utils/common_utils.c"
+    "src/messages/app_message.c"
+    "src/messages/speech.c"
+    "src/messages/version.c"
+    "src/messages/app_status.c"
+    "src/messages/upgrade.c"
+    "src/messages/mirror_support.c"
+    "src/messages/land_mode.c"
 )
 
 set(PROJECT_INC_DIR

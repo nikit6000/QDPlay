@@ -21,4 +21,8 @@ typedef struct {
 	/* 208 */ uint32_t out_app_height;
 } __attribute__((packed)) version_t;
 
+#pragma mark - Internal methods definitons
+
+void version_response_init(version_t * obj);
+
 #endif /* _VERSION_H_ */

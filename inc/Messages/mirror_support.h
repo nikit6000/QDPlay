@@ -12,4 +12,8 @@ typedef struct {
 	/* 192 */ uint32_t ret;
 } __attribute__((packed)) mirror_support_t;
 
+#pragma mark - Interal methods definitions
+
+void mirror_support_response_init(mirror_support_t * obj);
+
 #endif /* _MIRROR_SUPPORT_H_ */

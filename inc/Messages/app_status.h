@@ -13,4 +13,8 @@ typedef struct {
 	/* 84 */ uint32_t ret;
 } __attribute__((packed)) app_status_t;
 
+#pragma mark - Internal methods definitions
+
+void app_status_response_init(app_status_t * obj);
+
 #endif /* _APP_STATUS_H_ */

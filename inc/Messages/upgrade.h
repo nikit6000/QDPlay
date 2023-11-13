@@ -12,4 +12,8 @@ typedef struct {
 	/* 192 */ uint32_t ret;
 } __attribute__((packed)) upgrade_t;
 
+#pragma mark - Internal methods definitions
+
+void upgrade_response_init(upgrade_t * obj);
+
 #endif /* _UPGRADE_H_ */
