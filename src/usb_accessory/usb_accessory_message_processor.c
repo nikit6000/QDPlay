@@ -3,6 +3,7 @@
 #include <string.h>
 #include <netinet/in.h>
 #include <errno.h>
+#include "video/video_sender.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
 #include "messages/messages.h"
 #include "macros/data_types.h"
@@ -198,6 +199,8 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         free(response);
     } else if (cmd == MESSAGE_CMD_PLAY_STATUS) {
         printf("[MESSAGE_PROCESSOR] receive play status\n");
+
+        video_sender_start(fd);
     } else if (cmd == MESSAGE_CMD_MIRROR_SUPPORT) {
         uint8_t * response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
         

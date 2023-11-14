@@ -24,6 +24,8 @@ set(PROJECT_SRC
     "src/messages/upgrade.c"
     "src/messages/mirror_support.c"
     "src/messages/land_mode.c"
+    "src/messages/screen_header.c"
+    "src/video/video_sender.c"
 )
 
 set(PROJECT_INC_DIR

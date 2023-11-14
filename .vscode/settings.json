@@ -23,6 +23,12 @@
         "app_status.h": "c",
         "app_message.h": "c",
         "land_mode.h": "c",
-        "upgrade.h": "c"
+        "upgrade.h": "c",
+        "screen_header.h": "c",
+        "video_sender": "c",
+        "array": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "utility": "c"
     }
 }
