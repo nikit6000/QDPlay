@@ -12,6 +12,7 @@
 #include "usb_accessory/usb_accessory.h"
 #include "usb_accessory/usb_accessory_worker.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
+#include "video/video_receiver.h"
 
 #pragma mark - Private definitions
 

@@ -56,7 +56,7 @@ int usb_accessory_create(usb_accessory_data_t accessory_data) {
 		.bDeviceClass = USB_CLASS_PER_INTERFACE,
 		.bDeviceSubClass = 0x00,
 		.bDeviceProtocol = 0x00,
-		.bMaxPacketSize0 = 512,
+		.bMaxPacketSize0 = 64,
 		.idVendor = accessory_data.vid,
 		.idProduct = accessory_data.pid,
 		.bcdDevice = 0x0001,

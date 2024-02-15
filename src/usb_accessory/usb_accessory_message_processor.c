@@ -2,8 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <errno.h>
-#include "video/video_sender.h"
+#include "video/video_receiver.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
 #include "messages/messages.h"
 #include "macros/data_types.h"
@@ -13,7 +15,8 @@
 
 #pragma mark - Private definitions
 
-#define USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN            (512)
+#define USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN 				(512)
+#define USB_ACCESSORY_INPUT_SOCKET_PATH                      			"/tmp/qdplay.input.socket"
 
 #pragma mark - Private methods definitions
 
@@ -24,10 +27,18 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cont
 usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_speech(int fd, common_header_t * header, uint8_t* buffer, size_t len);
 usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(int fd, const hu_message_t* msg);
 
+#pragma mark - Private propoerties
+
+int usb_accessory_input_fd = -1;
+
 #pragma mark - Internal methods implementations
 
 usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(int acccessory_fd) {
     uint8_t* buffer = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
+
+	if (usb_accessory_input_fd <= 0) {
+		usb_accessory_input_fd = socket(AF_LOCAL, SOCK_DGRAM, 0);
+	}
 
     if (!buffer) {
         return USB_ACCESSORY_MSG_ERR_NO_MEM;
@@ -200,7 +211,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
     } else if (cmd == MESSAGE_CMD_PLAY_STATUS) {
         printf("[MESSAGE_PROCESSOR] receive play status\n");
 
-        video_sender_start(fd);
+        video_receiver_register_sink(fd);
     } else if (cmd == MESSAGE_CMD_MIRROR_SUPPORT) {
         uint8_t * response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
         
@@ -346,7 +357,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cont
     input_control_t* input_control = (input_control_t*)buffer;
     int16_t x1 = (int16_t)ntohs(input_control->event_value0);
     int16_t y1 = (int16_t)ntohs(input_control->event_value1);
-    
+
     switch ((int16_t)ntohs(input_control->event_type)) {
         case INT16_MIN:
             printf("Touch down: x1: %d, x1: %d;\n", x1, y1);
@@ -360,6 +371,26 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cont
             printf("Touch up: x1: %d, x1: %d;\n", x1, y1);
             break;
     }
+
+	if (usb_accessory_input_fd > 0) {
+		struct sockaddr_un remote_sink;
+		remote_sink.sun_family = AF_UNIX;
+
+		strncpy(
+			remote_sink.sun_path, 
+			USB_ACCESSORY_INPUT_SOCKET_PATH, 
+			sizeof(remote_sink.sun_path) - 1
+		);
+
+		sendto(
+			usb_accessory_input_fd, 
+			buffer, 
+			len, 
+			0,
+			(struct sockaddr*)&remote_sink, 
+			sizeof(remote_sink)
+		);
+	}
     
     return USB_ACCESSORY_MSG_OK;
 }

@@ -25,7 +25,7 @@ set(PROJECT_SRC
     "src/messages/mirror_support.c"
     "src/messages/land_mode.c"
     "src/messages/screen_header.c"
-    "src/video/video_sender.c"
+    "src/video/video_receiver.c"
 )
 
 set(PROJECT_INC_DIR
