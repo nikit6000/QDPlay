@@ -2,181 +2,241 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/select.h>
-#include <sys/poll.h>
+#include <sys/time.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <pthread.h>
-#include <stdio.h>
+#include <string.h>
 #include "accessory.h"
 #include "usb_accessory/usb_accessory.h"
 #include "usb_accessory/usb_accessory_worker.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
 #include "video/video_receiver.h"
+#include "logging/logging.h"
 
 #pragma mark - Private definitions
 
-#define USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(x)  do { if (x != 0) return x;  } while(0);
-#define USB_ACCESSORY_WORKER_USB_STATUS_IO          "/sys/class/udc/musb-hdrc.5.auto/device/gadget.0/suspended"
-#define USB_ACCESSORY_WORKER_USB_DRIVER_IO          "/dev/usb_accessory"
-#define USB_ACCESSORY_WORKER_POLL_INTERVAL_US       (10000)
-#define USB_ACCESSORY_WORKER_USB_POLL_INTERVAL_US   (500000)
-#define USB_ACCESSORY_WORKER_PACKET_SIZE            (512)
-#define USB_ACCESSORY_WORKER_EPOLL_MAX_EVENTS       (1)
-#define USB_ACCESSORY_WORKER_POLL_TIMEOUT_MS        (500)
+#define USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(x) \
+	do                                             \
+	{                                              \
+		if (x != 0)                                \
+			return x;                              \
+	} while (0);
+
+#define USB_ACCESSORY_WORKER_USB_DRIVER_IO 					"/dev/usb_accessory"
+#define USB_ACCESSORY_WORKER_POLL_INTERVAL_US 				(10000)
+#define USB_ACCESSORY_WORKER_USB_HEARTBEAT_INTERVAL_SEC 	(5)
+#define USB_ACCESSORY_WORKER_SEC_TO_US(x)					(1000000 * (x))
+
+typedef struct {
+	int accessory_fd;
+	pthread_t worker_thread;
+	gboolean is_connection_was_lost;
+} usb_accessory_worker_heartbeat_context_t;
+
+#pragma mark - Private properties
+
+unsigned long usb_accessory_worker_latest_activity_ts = 0;
 
 #pragma mark - Private methods definition
 
-int usb_accessory_worker_is_usb_suspended(void);
 int usb_accessory_worker_is_start_requested(void);
-void * usb_accessory_worker_initial_thread(void* arg);
-void * usb_accessory_worker_configured_thread(void* arg);
-void * usb_accessory_worker_configured_watcher_thread(void* arg);
+void *usb_accessory_worker_initial_thread(void *arg);
+void *usb_accessory_worker_configured_thread(void *arg);
+void *usb_accessory_worker_heartbeat_thread(void *arg);
+void usb_accessory_worker_heartbeat(void);
+unsigned long usb_accessory_worker_get_ts(void);
+const gchar* usb_accessory_worker_log_tag = "USB Worker";
 
 #pragma mark - Internal methods implementation
 
+int usb_accessory_worker_start(void)
+{
+	while (1) {
+		pthread_t initial_device_thread_id;
+		pthread_t configured_device_thread_id;
+		int thread_result = 0;
+
+		int result = pthread_create(
+			&initial_device_thread_id,
+			NULL,
+			usb_accessory_worker_initial_thread,
+			NULL
+		);
+
+		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+
+		result = pthread_join(initial_device_thread_id, NULL);
+
+		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(thread_result);
+
+		result = pthread_create(
+			&configured_device_thread_id,
+			NULL,
+			usb_accessory_worker_configured_thread,
+			NULL
+		);
+
+		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+
+		result = pthread_join(configured_device_thread_id, NULL);
+
+		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(thread_result);
+	}
+
+	return 0;
+}
+
 #pragma mark - Private methods implementation
 
-int usb_accessory_worker_is_usb_suspended(void) {
-    int fd = open(USB_ACCESSORY_WORKER_USB_STATUS_IO, O_RDONLY);
-    
-    char value = '0';
+int usb_accessory_worker_is_start_requested(void)
+{
+	int fd = open(USB_ACCESSORY_WORKER_USB_DRIVER_IO, O_RDWR);
 
-    if(read(fd, &value, 1)) {
-        return (int)(value - '0');
-    }
+	if (fd < 0)
+	{
+		LOG_E(usb_accessory_worker_log_tag, "Could not open %s", USB_ACCESSORY_WORKER_USB_DRIVER_IO);
 
-    printf("Can`t reader suspended status!\n");
+		return 0;
+	}
 
-    return 0;
+	int result = ioctl(fd, ACCESSORY_IS_START_REQUESTED);
+
+	close(fd);
+
+	return result;
 }
 
-int usb_accessory_worker_is_start_requested(void) {
-    int fd = open(USB_ACCESSORY_WORKER_USB_DRIVER_IO, O_RDWR);
+void *usb_accessory_worker_initial_thread(void *arg)
+{
 
-    if (fd < 0) {
-        printf("Could not open %s\n", USB_ACCESSORY_WORKER_USB_DRIVER_IO);
-        return 0;
-    }
+	LOG_I(usb_accessory_worker_log_tag, "Starting initial device ...");
 
-    int result = ioctl(fd, ACCESSORY_IS_START_REQUESTED);
+	int result = usb_accessory_reset();
 
-    close(fd);
-    
-    return result;
+	if (result < 0) {
+		LOG_E(usb_accessory_worker_log_tag, "Can`t reset USB accessory!");
+
+		exit(EXIT_FAILURE);
+	}
+
+	while (usb_accessory_worker_is_start_requested() == 0)
+	{
+		usleep(USB_ACCESSORY_WORKER_POLL_INTERVAL_US);
+	}
+
+	pthread_exit(&result);
+
+	return NULL;
 }
 
-int usb_accessory_worker_start(void) {
+void *usb_accessory_worker_configured_thread(void *arg)
+{
+	pthread_t heartbeat_thread;
+	usb_accessory_worker_heartbeat_context_t heartbeat_context;
 
-    while (1){
-        pthread_t initial_device_thread_id;
-        pthread_t configured_device_thread_id;
-        int thread_result = 0;
+	int accessory_fd = -1;
 
-        int result = pthread_create(
-            &initial_device_thread_id,
-            NULL,
-            usb_accessory_worker_initial_thread,
-            NULL
-        );
-        USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+	LOG_I(usb_accessory_worker_log_tag ,"Starting configured device ...");
 
-        result = pthread_join(initial_device_thread_id, NULL);
-        USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
-        USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(thread_result);
+	if (usb_accessory_configure() < 0) {
+		LOG_E(usb_accessory_worker_log_tag, "Can`t configure USB accessory");
 
-        result = pthread_create(
-            &configured_device_thread_id,
-            NULL,
-            usb_accessory_worker_configured_thread,
-            NULL
-        );
-        USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+		return NULL;
+	}
 
-        result = pthread_join(configured_device_thread_id, NULL);
-        USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
-        USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(thread_result);
-    }
-}
+	accessory_fd = open(USB_ACCESSORY_WORKER_USB_DRIVER_IO, O_RDWR);
 
-void * usb_accessory_worker_initial_thread(void* arg) {
+	if (accessory_fd < 0)
+	{
+		LOG_E(usb_accessory_worker_log_tag, "Failed to open accessory accessory file descriptor");
 
-    printf("Starting initial device ...\n");
+		goto out;
+	}
 
-    int result = usb_accessory_create(usb_accessory_initial);
+	if (usb_accessory_message_processor_setup(accessory_fd) != USB_ACCESSORY_MSG_OK)
+	{
+		LOG_E(usb_accessory_worker_log_tag, "Can`t setup message processor");
 
-    while (usb_accessory_worker_is_start_requested() == 0) {
-        usleep(USB_ACCESSORY_WORKER_POLL_INTERVAL_US);
-    }
+		goto out;
+	}
 
-    pthread_exit(&result);
-}
+	heartbeat_context.accessory_fd = accessory_fd;
+	heartbeat_context.worker_thread = pthread_self();
+	heartbeat_context.is_connection_was_lost = FALSE;
 
-void * usb_accessory_worker_configured_thread(void* arg) {
+	usb_accessory_worker_heartbeat();
 
-    printf("Starting configured device ...\n");
+	if (
+		pthread_create(
+			&heartbeat_thread,
+			NULL,
+			usb_accessory_worker_heartbeat_thread,
+			&heartbeat_context
+		) != 0
+	) {
+		LOG_E(usb_accessory_worker_log_tag, "Can`t setup heartbeat thread");
 
-    pthread_t usb_watcher_thread_id;
-    int result = usb_accessory_create(usb_accessory_configured);
-    int accessory_fd = open(USB_ACCESSORY_WORKER_USB_DRIVER_IO, O_RDWR);
+		goto out;
+	}
 
-    if (accessory_fd < 0) {
-        printf("Failed to open accessory file descriptor\n");
+	LOG_I(usb_accessory_worker_log_tag ,"Configured device started ...");
 
-        goto out;
-    }
+	while (TRUE) {
+		usb_accessory_msg_processor_status_t status;
 
-    if (usb_accessory_message_processor_setup(accessory_fd) != USB_ACCESSORY_MSG_OK) {
-        goto flush;
-    }
-
-    result = pthread_create(
-        &usb_watcher_thread_id,
-        NULL,
-        usb_accessory_worker_configured_watcher_thread,
-        NULL
-    );
-
-    if (result != 0) {
-        goto flush;
-    }
-
-    uint8_t buffer[USB_ACCESSORY_WORKER_PACKET_SIZE] = { 0 };
-    
-    printf("Configured device started ...\n");
-
-    while (1) {
-        usb_accessory_msg_processor_status_t status;
-
-        status = usb_accessory_message_processor_handle(accessory_fd);
-
-        if (status != USB_ACCESSORY_MSG_OK) {
-            break;
-        }
-    }
-
-    pthread_join(usb_watcher_thread_id, NULL);
-
-flush:
-
-    if (accessory_fd >= 0) 
-        close(accessory_fd);
+		if (usb_accessory_message_processor_handle(accessory_fd) == USB_ACCESSORY_MSG_OK) {
+			usb_accessory_worker_heartbeat();
+		}
+	}
 
 out:
-    pthread_exit(&result);
+
+	if (accessory_fd > 0)
+		close(accessory_fd);
+
+	return NULL;
 }
 
-void * usb_accessory_worker_configured_watcher_thread(void* arg) {
+void *usb_accessory_worker_heartbeat_thread(void *arg)
+{
+	usb_accessory_worker_heartbeat_context_t *heartbeat_context = (usb_accessory_worker_heartbeat_context_t*)arg;
 
-    // Wait until disconnect event
+	if (heartbeat_context == NULL) {
+		return NULL;
+	} 	
 
-    printf("USB watcher thread started\n");
+	while (1) {
+		usleep(100);
 
-    while (usb_accessory_worker_is_usb_suspended() == 0) {
-       usleep(USB_ACCESSORY_WORKER_USB_POLL_INTERVAL_US);
-    }
+		unsigned long elapsed_time = usb_accessory_worker_get_ts() - usb_accessory_worker_latest_activity_ts;
 
-    printf("USB disconnected\n");
+		if (elapsed_time > USB_ACCESSORY_WORKER_SEC_TO_US(USB_ACCESSORY_WORKER_USB_HEARTBEAT_INTERVAL_SEC)) {
+			break;
+		}
+	}
 
-    usb_accessory_remove_all();
+	heartbeat_context->is_connection_was_lost = TRUE;
+
+	video_receiver_remove_sink();
+	pthread_cancel(heartbeat_context->worker_thread);
+	close(heartbeat_context->accessory_fd);
+
+	LOG_I(usb_accessory_worker_log_tag, "Connection lost");
+
+	return NULL;
+}
+
+unsigned long usb_accessory_worker_get_ts(void) {
+	struct timeval tv;
+	
+	gettimeofday(&tv, NULL);
+	
+	return USB_ACCESSORY_WORKER_SEC_TO_US(tv.tv_sec) + tv.tv_usec;
+}
+
+void usb_accessory_worker_heartbeat(void) {
+	usb_accessory_worker_latest_activity_ts = usb_accessory_worker_get_ts();
 }

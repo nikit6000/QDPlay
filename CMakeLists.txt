@@ -4,8 +4,10 @@ cmake_minimum_required(VERSION 3.16.4)
 #Project name
 project(QDPlay VERSION 1.0.0)
 
-include_directories(/usr/local/include)
-link_directories(/usr/local/lib)
+# the `pkg_check_modules` function is created with this call
+find_package(PkgConfig REQUIRED) 
+
+pkg_check_modules(GLIB2 REQUIRED glib-2.0)
 
 #source files directory
 
@@ -26,14 +28,35 @@ set(PROJECT_SRC
     "src/messages/land_mode.c"
     "src/messages/screen_header.c"
     "src/video/video_receiver.c"
+	"src/logging/logging.c"
 )
 
 set(PROJECT_INC_DIR
     "inc"
 )
 
-include_directories(${PROJECT_INC_DIR})
-set(ALL_FILES ${PROJECT_SRC})
+include_directories(
+	${PROJECT_INC_DIR}
+    ${GLIB2_INCLUDE_DIRS} 
+)
 
-add_executable(${PROJECT_NAME} ${ALL_FILES})
-target_link_libraries(${PROJECT_NAME} usbgx pthread)
+link_directories(
+    ${GLIB2_LIBRARY_DIRS}
+)
+
+set(
+	ALL_FILES 
+	${PROJECT_SRC}
+)
+
+add_executable(
+	${PROJECT_NAME} 
+	${ALL_FILES}
+)
+
+target_link_libraries(
+	${PROJECT_NAME} 
+	${GLIB2_LIBRARIES}
+	usbgx 
+	pthread
+)

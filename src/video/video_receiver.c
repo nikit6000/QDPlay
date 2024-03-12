@@ -95,8 +95,8 @@ void video_receiver_register_sink(int fd) {
 	pthread_mutex_unlock(&video_receiver_mutex);
 }
 
-void video_receiver_set_needs_sps(void) {
-
+void video_receiver_remove_sink(void) {
+	video_receiver_register_sink(-1);
 }
 
 #pragma mark - Private methods implementation

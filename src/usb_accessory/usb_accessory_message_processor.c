@@ -5,18 +5,21 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <errno.h>
+#include <ctype.h>
 #include "video/video_receiver.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
+#include "usb_accessory/usb_accessory_worker.h"
 #include "messages/messages.h"
 #include "macros/data_types.h"
 #include "macros/comand_types.h"
+#include "logging/logging.h"
 #include "hu_message.h"
-#include <ctype.h>
 
 #pragma mark - Private definitions
 
 #define USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN 				(512)
-#define USB_ACCESSORY_INPUT_SOCKET_PATH                      			"/tmp/qdplay.input.socket"
+#define USB_ACCESSORY_MESSAGE_PROCESSOR_APP_STATUS_DELAY_US 			(100000)
+#define USB_ACCESSORY_MESSAGE_PROCESSOR_INPUT_SOCKET_PATH		        "/tmp/qdplay.input.socket"
 
 #pragma mark - Private methods definitions
 
@@ -26,18 +29,20 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
 usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_control(int fd, common_header_t * header, uint8_t* buffer, size_t len);
 usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_speech(int fd, common_header_t * header, uint8_t* buffer, size_t len);
 usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(int fd, const hu_message_t* msg);
+void usb_accessory_message_share_data_if_possible(uint8_t* data, size_t data_len);
 
 #pragma mark - Private propoerties
 
-int usb_accessory_input_fd = -1;
+int usb_accessory_message_processor_input_fd = -1;
+const gchar* usb_accessory_message_processor_log_tag = "Message processor";
 
 #pragma mark - Internal methods implementations
 
 usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(int acccessory_fd) {
     uint8_t* buffer = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
 
-	if (usb_accessory_input_fd <= 0) {
-		usb_accessory_input_fd = socket(AF_LOCAL, SOCK_DGRAM, 0);
+	if (usb_accessory_message_processor_input_fd <= 0) {
+		usb_accessory_message_processor_input_fd = socket(AF_LOCAL, SOCK_DGRAM, 0);
 	}
 
     if (!buffer) {
@@ -51,15 +56,15 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(int a
     usb_accessory_msg_processor_status_t status = USB_ACCESSORY_MSG_OK;
 
     while(write(acccessory_fd, buffer, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
-        
-        if (errno != 19) {
+
+        if (errno != ENODEV) {
             status = USB_ACCESSORY_MSG_ERR_IO;
             
             break;
         }
 
-        printf("Awaiting accessory ...\n");
-        usleep(100000);
+        LOG_I(usb_accessory_message_processor_log_tag, "Awaiting accessory ...");
+        usleep(USB_ACCESSORY_MESSAGE_PROCESSOR_APP_STATUS_DELAY_US);
     }
     
     free(buffer);
@@ -110,32 +115,37 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle(int 
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
+
     } else if (data_type == MESSAGE_DATA_TYPE_SCREEN_CAPTURE) {
         status = usb_accessory_message_processor_handle_screen(
             acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
+
     } else if (data_type == MESSAGE_DATA_TYPE_HU_MSG && action == 1) {
         status = usb_accessory_message_processor_handle_hu_msg(
             acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
+
     } else if (data_type == MESSAGE_DATA_TYPE_IN_APP_CONTROL) {
         status = usb_accessory_message_processor_handle_control(
             acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
+
     } else if (data_type == MESSAGE_DATA_TYPE_SPEECH_STATUS) {
         status = usb_accessory_message_processor_handle_speech(
             acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
+
     } else {
-        printf("Unprocessed data_type: %d, action %d\n", data_type, action);
+        LOG_W(usb_accessory_message_processor_log_tag, "Unprocessed data_type: %d, action %d", data_type, action);
     }
     
     free(read_buffer);
@@ -187,6 +197,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         }
 
         free(response);
+
     } else if (cmd == MESSAGE_CMD_LAND_MODE) {
         uint8_t* response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
 
@@ -208,10 +219,12 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         }
 
         free(response);
+
     } else if (cmd == MESSAGE_CMD_PLAY_STATUS) {
-        printf("[MESSAGE_PROCESSOR] receive play status\n");
+        LOG_I(usb_accessory_message_processor_log_tag, "Receive play status");
 
         video_receiver_register_sink(fd);
+
     } else if (cmd == MESSAGE_CMD_MIRROR_SUPPORT) {
         uint8_t * response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
         
@@ -241,12 +254,15 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         } else {
             status = USB_ACCESSORY_MSG_ERR_NO_MEM;
         }
+
     } else if (cmd == MESSAGE_CMD_RESEND_SPS) {
-        printf("[MESSAGE_PROCESSOR] needs sps\n");
+        usb_accessory_message_share_data_if_possible(buffer, len);
+
     } else if (cmd == MESSAGE_CMD_HEARTBEAT){
-        printf("Receive heardbeat cmd...\n");
+        LOG_I(usb_accessory_message_processor_log_tag, "Receive heardbeat cmd...");
+
     } else {
-        printf("Unprocessed cmd: %d\n", cmd);
+        LOG_W(usb_accessory_message_processor_log_tag, "Unprocessed cmd: %d", cmd);
     }
     
     return status;
@@ -254,10 +270,11 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
 
 usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_screen(int fd, common_header_t * header, uint8_t* buffer, size_t len) {
     usb_accessory_msg_processor_status_t status = USB_ACCESSORY_MSG_OK;
-    
-    printf("Receive screen params\n");
+    uint8_t* response = NULL;
 
-    uint8_t* response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
+    LOG_I(usb_accessory_message_processor_log_tag, "Receive screen params\n");
+
+    response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
 
     if (!response) {
         return USB_ACCESSORY_MSG_ERR_NO_MEM;
@@ -301,7 +318,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
 
     if (request_message) {
 
-        printf("Receive HU: %s\n", request_message->logic_id);
+        LOG_I(usb_accessory_message_processor_log_tag, "Receive HU: %s", request_message->logic_id);
 
         if (strcmp(request_message->logic_id, "HUINFO") == 0) {
             response_message = hu_message_init(
@@ -317,7 +334,8 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
                 "{\"D\":0,\"T\":\"i\",\"V\":1}"
             );
 
-            printf("Sending phoneinitok...\n");
+            LOG_I(usb_accessory_message_processor_log_tag, "Sending phoneinitok...");
+
         } else if (strcmp(request_message->logic_id, "BT_AUTO_CONNECTED") == 0) {
             response_message = hu_message_init(
                 "QDRIVE_ASSISTANT",
@@ -326,9 +344,10 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
                 "{\"D\":1,\"T\":\"(is)\",\"V\":[{\"D\":0,\"T\":\"i\",\"V\":0},{\"D\":0,\"T\":\"s\",\"V\":\"\"}]}"
             );
 
-            printf("Sending BT_AUTO_CONNECTED...\n");
+            LOG_I(usb_accessory_message_processor_log_tag, "Sending BT_AUTO_CONNECTED...");
+
         } else {
-            printf("Not processed: %s\n", request_message->logic_id);
+            LOG_W(usb_accessory_message_processor_log_tag, "HU message was`t processed: %s", request_message->logic_id);
         }
 
         hu_message_free(request_message);
@@ -355,42 +374,8 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
 
 usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_control(int fd, common_header_t * header, uint8_t* buffer, size_t len) {
     input_control_t* input_control = (input_control_t*)buffer;
-    int16_t x1 = (int16_t)ntohs(input_control->event_value0);
-    int16_t y1 = (int16_t)ntohs(input_control->event_value1);
 
-    switch ((int16_t)ntohs(input_control->event_type)) {
-        case INT16_MIN:
-            printf("Touch down: x1: %d, x1: %d;\n", x1, y1);
-            break;
-            
-        case -32767:
-            printf("Touch move: x1: %d, x1: %d;\n", x1, y1);
-            break;
-            
-        default:
-            printf("Touch up: x1: %d, x1: %d;\n", x1, y1);
-            break;
-    }
-
-	if (usb_accessory_input_fd > 0) {
-		struct sockaddr_un remote_sink;
-		remote_sink.sun_family = AF_UNIX;
-
-		strncpy(
-			remote_sink.sun_path, 
-			USB_ACCESSORY_INPUT_SOCKET_PATH, 
-			sizeof(remote_sink.sun_path) - 1
-		);
-
-		sendto(
-			usb_accessory_input_fd, 
-			buffer, 
-			len, 
-			0,
-			(struct sockaddr*)&remote_sink, 
-			sizeof(remote_sink)
-		);
-	}
+    usb_accessory_message_share_data_if_possible(buffer, len);
     
     return USB_ACCESSORY_MSG_OK;
 }
@@ -473,4 +458,32 @@ usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(int fd, 
     free(encoded_hu_message);
 
     return (write_status < 0) ? USB_ACCESSORY_MSG_ERR_IO : USB_ACCESSORY_MSG_OK;
+}
+
+void usb_accessory_message_share_data_if_possible(uint8_t* data, size_t data_len) {
+    if (
+        (usb_accessory_message_processor_input_fd <= 0) || 
+        (data == NULL) || 
+        (data_len == 0)
+    ) {
+        return;
+    }
+   
+    struct sockaddr_un remote_sink;
+    remote_sink.sun_family = AF_UNIX;
+
+    strncpy(
+        remote_sink.sun_path, 
+        USB_ACCESSORY_MESSAGE_PROCESSOR_INPUT_SOCKET_PATH, 
+        sizeof(remote_sink.sun_path) - 1
+    );
+
+    sendto(
+        usb_accessory_message_processor_input_fd, 
+        data, 
+        data_len, 
+        0,
+        (struct sockaddr*)&remote_sink, 
+        sizeof(remote_sink)
+    );
 }

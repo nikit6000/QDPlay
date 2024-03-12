@@ -6,6 +6,10 @@
                 "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/include/aarch64-linux-gnu",
                 "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/include",
                 "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/local/include",
+                "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/include/dbus-1.0",
+                "/Users/mac/Documents/hobby/OrangePi/sysroot/usr/include/glib-2.0",
+                "/Users/mac/Documents/hobby/OrangePi/sysroot/lib/aarch64-linux-gnu/dbus-1.0/include",
+                "/Users/mac/Documents/hobby/OrangePi/sysroot/lib/aarch64-linux-gnu/glib-2.0/include",	
                 "${workspaceFolder}/**"
             ],
             "defines": [],

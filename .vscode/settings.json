@@ -30,6 +30,7 @@
         "string_view": "c",
         "initializer_list": "c",
         "utility": "c",
-        "video_sender.h": "c"
+        "video_sender.h": "c",
+        "errno-base.h": "c"
     }
 }
