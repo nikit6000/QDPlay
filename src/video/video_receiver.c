@@ -6,8 +6,10 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <string.h>
+#include <glib.h>
 #include "video/video_receiver.h"
 #include "messages/screen_header.h"
+#include "usb_accessory/usb_active_accessory.h"
 
 #define VIDEO_RECEIVER_SOCKET_PATH                      "/tmp/qdplay.video.socket"
 #define VIDEO_RECEIVER_SOCKET_MAXIMUM_CONN              (1)
@@ -24,7 +26,7 @@ typedef struct  {
 
 #pragma mark - Private propoerties
 
-int video_sink_fd = -1;
+gboolean video_sink_active = FALSE;
 pthread_t video_reveiver_thread_id;
 pthread_mutex_t video_receiver_mutex;
 
@@ -87,16 +89,20 @@ video_receiver_status_t video_receiver_start(void) {
     return VIDEO_RECEIVER_OK;
 }
 
-void video_receiver_register_sink(int fd) {
+void video_receiver_activate(void) {
 	pthread_mutex_lock(&video_receiver_mutex);
 
-	video_sink_fd = fd;
+	video_sink_active = TRUE;
 
 	pthread_mutex_unlock(&video_receiver_mutex);
 }
 
-void video_receiver_remove_sink(void) {
-	video_receiver_register_sink(-1);
+void video_receiver_deactivate(void) {
+	pthread_mutex_lock(&video_receiver_mutex);
+
+	video_sink_active = FALSE;
+
+	pthread_mutex_unlock(&video_receiver_mutex);
 }
 
 #pragma mark - Private methods implementation
@@ -136,8 +142,8 @@ void* video_receiver_processing_thread(void * context) {
 
 		pthread_mutex_lock(&video_receiver_mutex);
 
-		if (received > 0 && video_sink_fd > 0) {
-			write(video_sink_fd, buffer, received);
+		if (received > 0 && video_sink_active == TRUE) {
+			usb_active_accessory_write(buffer, received);
 		}
 
 		pthread_mutex_unlock(&video_receiver_mutex);

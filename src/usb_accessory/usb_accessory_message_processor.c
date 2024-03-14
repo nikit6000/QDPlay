@@ -9,6 +9,7 @@
 #include "video/video_receiver.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
 #include "usb_accessory/usb_accessory_worker.h"
+#include "usb_accessory/usb_active_accessory.h"
 #include "messages/messages.h"
 #include "macros/data_types.h"
 #include "macros/comand_types.h"
@@ -23,12 +24,12 @@
 
 #pragma mark - Private methods definitions
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(int fd, common_header_t * header, uint8_t* buffer, size_t len);
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_screen(int fd, common_header_t * header, uint8_t* buffer, size_t len);
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_msg(int fd, common_header_t * header, uint8_t* buffer, size_t len);
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_control(int fd, common_header_t * header, uint8_t* buffer, size_t len);
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_speech(int fd, common_header_t * header, uint8_t* buffer, size_t len);
-usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(int fd, const hu_message_t* msg);
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(common_header_t * header, uint8_t* buffer, size_t len);
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_screen(common_header_t * header, uint8_t* buffer, size_t len);
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_msg(common_header_t * header, uint8_t* buffer, size_t len);
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_control(common_header_t * header, uint8_t* buffer, size_t len);
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_speech(common_header_t * header, uint8_t* buffer, size_t len);
+usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(const hu_message_t* msg);
 void usb_accessory_message_share_data_if_possible(uint8_t* data, size_t data_len);
 
 #pragma mark - Private propoerties
@@ -38,7 +39,7 @@ const gchar* usb_accessory_message_processor_log_tag = "Message processor";
 
 #pragma mark - Internal methods implementations
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(int acccessory_fd) {
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(void) {
     uint8_t* buffer = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
 
 	if (usb_accessory_message_processor_input_fd <= 0) {
@@ -55,7 +56,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(int a
     
     usb_accessory_msg_processor_status_t status = USB_ACCESSORY_MSG_OK;
 
-    while(write(acccessory_fd, buffer, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
+    while(usb_active_accessory_write(buffer, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
 
         if (errno != ENODEV) {
             status = USB_ACCESSORY_MSG_ERR_IO;
@@ -72,21 +73,14 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(int a
     return status;
 }
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle(int acccessory_fd) {
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle(void) {
     uint8_t* read_buffer = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
     
     if (!read_buffer) {
         return USB_ACCESSORY_MSG_ERR_NO_MEM;
     }
     
-    if (acccessory_fd < 0) {
-        free(read_buffer);
-        
-        return USB_ACCESSORY_MSG_ERR_BROKEN_FD;
-    }
-    
-    ssize_t readed = read(
-        acccessory_fd,
+    ssize_t readed = usb_active_accessory_read(
         read_buffer,
         USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
     );
@@ -111,35 +105,30 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle(int 
     
     if (data_type == MESSAGE_DATA_TYPE_CMD && action == 1) {
         status = usb_accessory_message_processor_handle_cmd(
-            acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
 
     } else if (data_type == MESSAGE_DATA_TYPE_SCREEN_CAPTURE) {
         status = usb_accessory_message_processor_handle_screen(
-            acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
 
     } else if (data_type == MESSAGE_DATA_TYPE_HU_MSG && action == 1) {
         status = usb_accessory_message_processor_handle_hu_msg(
-            acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
 
     } else if (data_type == MESSAGE_DATA_TYPE_IN_APP_CONTROL) {
         status = usb_accessory_message_processor_handle_control(
-            acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
 
     } else if (data_type == MESSAGE_DATA_TYPE_SPEECH_STATUS) {
         status = usb_accessory_message_processor_handle_speech(
-            acccessory_fd,
             header, read_buffer,
             USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN
         );
@@ -155,7 +144,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle(int 
 
 #pragma mark - Private methods implementations
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(int fd, common_header_t * header, uint8_t* buffer, size_t len) {
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(common_header_t * header, uint8_t* buffer, size_t len) {
     usb_accessory_msg_processor_status_t status = USB_ACCESSORY_MSG_OK;
     common_comand_header_t * comand_header = (common_comand_header_t *)(buffer + sizeof(common_header_t));
     
@@ -181,7 +170,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         response_version->out_app_width = request_version->car_width;
         response_version->out_app_height = request_version->car_height;
 
-        if (write(fd, response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
+        if (usb_active_accessory_write(response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
             status = USB_ACCESSORY_MSG_ERR_IO;
         }
 
@@ -192,7 +181,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         upgrade_t * response_upgrade = (upgrade_t *)response;
         upgrade_response_init(response_upgrade);
 
-        if (write(fd, response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
+        if (usb_active_accessory_write(response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
             status = USB_ACCESSORY_MSG_ERR_IO;
         }
 
@@ -214,7 +203,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         response_land_mode->ret = request_land_mode->value;
         response_land_mode->is_value = ntohl(2);
 
-        if (write(fd, response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
+        if (usb_active_accessory_write(response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
             status = USB_ACCESSORY_MSG_ERR_IO;
         }
 
@@ -223,7 +212,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
     } else if (cmd == MESSAGE_CMD_PLAY_STATUS) {
         LOG_I(usb_accessory_message_processor_log_tag, "Receive play status");
 
-        video_receiver_register_sink(fd);
+        video_receiver_activate();
 
     } else if (cmd == MESSAGE_CMD_MIRROR_SUPPORT) {
         uint8_t * response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
@@ -235,7 +224,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         memset(response, 0, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
         mirror_support_response_init((mirror_support_t*)response);
 
-        if (write(fd, response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
+        if (usb_active_accessory_write(response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN) < 0) {
             status = USB_ACCESSORY_MSG_ERR_IO;
         }
 
@@ -248,7 +237,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
         );
 
         if (response_message) {
-            status = usb_accessory_message_send_app_msg(fd, response_message);
+            status = usb_accessory_message_send_app_msg(response_message);
 
             hu_message_free(response_message);
         } else {
@@ -268,11 +257,11 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cmd(
     return status;
 }
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_screen(int fd, common_header_t * header, uint8_t* buffer, size_t len) {
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_screen(common_header_t * header, uint8_t* buffer, size_t len) {
     usb_accessory_msg_processor_status_t status = USB_ACCESSORY_MSG_OK;
     uint8_t* response = NULL;
 
-    LOG_I(usb_accessory_message_processor_log_tag, "Receive screen params\n");
+    LOG_I(usb_accessory_message_processor_log_tag, "Receive screen params");
 
     response = (uint8_t*)malloc(USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
 
@@ -284,14 +273,14 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_scre
     
     speech_response_init((speech_t*)response);
 
-    int write_status = write(fd, response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
+    int write_status = usb_active_accessory_write(response, USB_ACCESSORY_MESSAGE_PROCESSOR_DEFAULT_PACKET_LEN);
 
     free(response);
 
     return write_status < 0 ? USB_ACCESSORY_MSG_ERR_IO : USB_ACCESSORY_MSG_OK;
 }
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_msg(int fd, common_header_t * header, uint8_t* buffer, size_t len) {
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_msg(common_header_t * header, uint8_t* buffer, size_t len) {
     uint32_t total_len = ntohl(header->total_size);
     uint32_t payload_len = total_len - len;
     uint8_t* payload = NULL;
@@ -306,7 +295,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
         return USB_ACCESSORY_MSG_ERR_NO_MEM;
     }
     
-    if ((payload_len > 0) && (read(fd, payload, payload_len) < 0)) {
+    if ((payload_len > 0) && (usb_active_accessory_read(payload, payload_len) < 0)) {
         free(payload);
 
         return USB_ACCESSORY_MSG_ERR_IO;
@@ -359,10 +348,10 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
         return USB_ACCESSORY_MSG_OK;
     }
 
-    usb_accessory_msg_processor_status_t status = usb_accessory_message_send_app_msg(fd, response_message);
+    usb_accessory_msg_processor_status_t status = usb_accessory_message_send_app_msg(response_message);
     
     if (aux_response_message && (status == USB_ACCESSORY_MSG_OK)) {
-        status = usb_accessory_message_send_app_msg(fd, aux_response_message);
+        status = usb_accessory_message_send_app_msg(aux_response_message);
 
         free(aux_response_message);
     }
@@ -372,7 +361,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_hu_m
     return status;
 }
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_control(int fd, common_header_t * header, uint8_t* buffer, size_t len) {
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_control(common_header_t * header, uint8_t* buffer, size_t len) {
     input_control_t* input_control = (input_control_t*)buffer;
 
     usb_accessory_message_share_data_if_possible(buffer, len);
@@ -380,7 +369,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_cont
     return USB_ACCESSORY_MSG_OK;
 }
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_speech(int fd, common_header_t * header, uint8_t* buffer, size_t len) {
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_speech(common_header_t * header, uint8_t* buffer, size_t len) {
     uint32_t full_packet_len = ntohl(header->total_size);
     uint8_t* response = (uint8_t*)malloc(full_packet_len);
     
@@ -390,7 +379,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_spee
     
     memcpy(response, buffer, len);
     
-    if (read(fd, response + len, full_packet_len - len) < 0) {
+    if (usb_active_accessory_read(response + len, full_packet_len - len) < 0) {
         free(response);
         
         return USB_ACCESSORY_MSG_ERR_IO;
@@ -405,7 +394,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle_spee
     return USB_ACCESSORY_MSG_OK;
 }
 
-usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(int fd, const hu_message_t* msg) {
+usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(const hu_message_t* msg) {
     uint32_t encoded_hu_message_len = 0;
     uint8_t* encoded_hu_message = hu_message_encode(
         msg,
@@ -452,7 +441,7 @@ usb_accessory_msg_processor_status_t usb_accessory_message_send_app_msg(int fd, 
         encoded_hu_message_len
     );
 
-    int write_status = write(fd, response, total_size);
+    int write_status = usb_active_accessory_write(response, total_size);
 
     free(response);
     free(encoded_hu_message);

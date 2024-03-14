@@ -16,6 +16,7 @@ set(PROJECT_SRC
     "src/usb_accessory/usb_accessory.c"
     "src/usb_accessory/usb_accessory_worker.c"
     "src/usb_accessory/usb_accessory_message_processor.c"
+    "src/usb_accessory/usb_active_accessory.c"
     "src/hu_message.c"
     "src/utils/crc16.c"
     "src/utils/common_utils.c"

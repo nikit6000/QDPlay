@@ -31,6 +31,8 @@
         "initializer_list": "c",
         "utility": "c",
         "video_sender.h": "c",
-        "errno-base.h": "c"
+        "errno-base.h": "c",
+        "logging.h": "c",
+        "usb_active_accessory.h": "c"
     }
 }
