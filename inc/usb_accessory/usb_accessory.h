@@ -22,6 +22,7 @@ typedef struct {
 int usb_accessory_create_initial_gadget(void);
 int usb_accessory_reset(void);
 int usb_accessory_configure(void);
+int usb_accessory_disable(void);
 
 #ifdef __cplusplus
 }

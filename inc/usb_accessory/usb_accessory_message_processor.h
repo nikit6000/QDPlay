@@ -18,8 +18,8 @@ typedef enum {
 
 #pragma mark - Internal methods definitions
 
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(int acccessory_fd);
-usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle(int acccessory_fd);
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_setup(void);
+usb_accessory_msg_processor_status_t usb_accessory_message_processor_handle(void);
 
 #ifdef __cplusplus
 }

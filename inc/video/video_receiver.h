@@ -10,7 +10,7 @@ typedef enum {
 } video_receiver_status_t;
 
 video_receiver_status_t video_receiver_start(void);
-void video_receiver_remove_sink(void);
-void video_receiver_register_sink(int fd);
+void video_receiver_activate(void);
+void video_receiver_deactivate(void);
 
 #endif

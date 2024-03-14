@@ -89,6 +89,24 @@ int usb_accessory_configure(void) {
 	return ret;
 }
 
+int usb_accessory_disable(void) {
+	int ret = 0;
+
+	pthread_mutex_lock(&usb_accessory_mutex);
+
+	if (usb_accessory_gadget == NULL) {
+		return -1;
+	}
+
+	ret = usbg_disable_gadget(usb_accessory_gadget);
+
+	usleep(USB_ACCESSORY_RECONFIGURE_DELAY_US);
+
+	pthread_mutex_unlock(&usb_accessory_mutex);
+
+	return ret;
+}
+
 #pragma mark - Private methods implementations
 
 int usb_accessory_reconfigure(usb_accessory_data_t accessory_data) {
