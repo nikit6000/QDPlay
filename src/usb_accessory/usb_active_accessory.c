@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+#include "messages/new_message_common_header.h"
 #include "usb_accessory/usb_active_accessory.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
 #include "usb_accessory/usb_accessory.h"
@@ -51,6 +52,7 @@ unsigned long usb_active_accessory_get_ts(void);
 void* usb_active_accessory_read_hb(void *arg);
 void* usb_active_accessory_write_hb(void *arg);
 void* usb_active_accessory_processor(void *arg);
+void usb_active_accessory_send_heartbeat(void);
 
 #pragma mark - Internal function implementations
 
@@ -240,9 +242,7 @@ void* usb_active_accessory_write_hb(void *arg) {
         unsigned long elapsed_time = usb_active_accessory_get_ts() - usb_active_accessory_state.last_write_ts;
 
         if (elapsed_time >= USB_ACTIVE_ACCESSORY_WORKER_SEC_TO_US(USB_ACTIVE_ACCESSORY_WRITE_HB_INTERVAL_SEC)) {
-            //usb_active_accessory_write(NULL, 0); // TODO
-            LOG_I(usb_active_accessory_log_tag, "Sending HeartBeat");
-            usb_active_accessory_state.last_write_ts = usb_active_accessory_get_ts();
+            usb_active_accessory_send_heartbeat();
         }
 
         usleep(USB_ACTIVE_ACCESSORY_HB_CHECK_PERIOD_US);
@@ -263,4 +263,16 @@ void* usb_active_accessory_processor(void *arg) {
     }
 
     return NULL;
+}
+
+void usb_active_accessory_send_heartbeat(void) {
+    uint8_t buffer[MESSAGE_DEFAULT_CHUNK_SIZE];
+
+    memset(buffer, 0, MESSAGE_DEFAULT_CHUNK_SIZE);
+
+    if (new_message_heartbeat_init(buffer, MESSAGE_DEFAULT_CHUNK_SIZE) < 0) {
+        return;
+    }
+
+    usb_active_accessory_write(buffer, MESSAGE_DEFAULT_CHUNK_SIZE);
 }

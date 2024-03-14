@@ -28,6 +28,7 @@ set(PROJECT_SRC
     "src/messages/mirror_support.c"
     "src/messages/land_mode.c"
     "src/messages/screen_header.c"
+    "src/messages/new_message_common_header.c"
     "src/video/video_receiver.c"
 	"src/logging/logging.c"
 )

@@ -1,8 +1,10 @@
 #ifndef _DATA_TYPES_H_
 #define _DATA_TYPES_H_
 
-#define MESSAGE_BINARY_HEADER                      "!BIN"
-#define MESSAGE_BINARY_HEADER_LEN                  4
+#define MESSAGE_BINARY_HEADER                       "!BIN"
+#define MESSAGE_NEW_HEADER                          "5A5A"
+#define MESSAGE_BINARY_HEADER_LEN                   4
+#define MESSAGE_NEW_HEADER_LEN                      4
 
 #define MESSAGE_DATA_TYPE_CMD						0
 #define MESSAGE_DATA_TYPE_SCREEN_CAPTURE			1
@@ -13,5 +15,7 @@
 #define MESSAGE_DATA_TYPE_SPEECH_STATUS				12
 #define MESSAGE_DATA_TYPE_APP_DATA					13
 #define MESSAGE_DATA_TYPE_CUSTOM_STATUS				99
+
+#define MESSAGE_DEFAULT_CHUNK_SIZE                  512
 
 #endif /* _DATA_TYPES_H_ */
