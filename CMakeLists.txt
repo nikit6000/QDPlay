@@ -62,3 +62,10 @@ target_link_libraries(
 	usbgx 
 	pthread
 )
+
+install(
+    TARGETS
+    ${PROJECT_NAME}
+    DESTINATION
+    bin
+)
