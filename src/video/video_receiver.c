@@ -139,8 +139,8 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 	while (1) {
 		screen_header_t* header = NULL;
 		size_t data_to_read = 0;
-		int received_data_len = recv(video_source_fd, *buffer, *buffer_size, 0);
-		int size_difference = 0;
+		ssize_t received_data_len = recv(video_source_fd, *buffer, *buffer_size, 0);
+		ssize_t size_difference = 0;
 
 		if (received_data_len <= 0) {
 			LOG_E(video_receiver_tag, "Can`t read data: %d", received_data_len);
@@ -175,7 +175,10 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 
 		while (data_to_read > 0)
 		{
-			int readed = recv(video_source_fd, *buffer + received_data_len, data_to_read, 0);
+			LOG_I(video_receiver_tag, "REM: %ld, READED: %ld", data_to_read, received_data_len);
+
+			uint8_t* buffer_base_ptr = *buffer;
+			ssize_t readed = recv(video_source_fd, buffer_base_ptr + received_data_len, data_to_read, 0);
 
 			if (readed <= 0) {
 				break;
