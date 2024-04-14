@@ -129,12 +129,12 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 	int video_source_fd = accept(fd, (struct sockaddr*)&video_source_addr, &video_source_addr_len);
 
 	if (video_source_fd < 0) {
-		LOG_I(video_receiver_tag, "Can`t video to video source");
+		LOG_E(video_receiver_tag, "Can`t video to video source");
 
 		return;
 	}
 
-	LOG_I(video_receiver_tag, "Video ource connected!");
+	LOG_I(video_receiver_tag, "Video source connected!");
 
 	while (1) {
 		screen_header_t* header = NULL;
@@ -148,16 +148,27 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			break;
 		}
 
+		if (received_data_len < VIDEO_RECEIVER_SOCKET_HEADER_SIZE) {
+			LOG_E(video_receiver_tag, "Sequence error, initial package has incorrect size");
+
+			break;
+		}
+
 		header = (screen_header_t*)(*buffer);
 
 		if (memcmp(header->common_header.binary_mark, MESSAGE_BINARY_HEADER, MESSAGE_BINARY_HEADER_LEN) != 0) {
-			LOG_E(video_receiver_tag, "Message binary mark not match");
+			LOG_E(video_receiver_tag, "Message binary mark not matched");
 
 			break;
 		}
 
 		data_to_read = bswap_32(header->common_header.total_size);
-		LOG_I(video_receiver_tag, "Got !BIN package: %ld (readed: %ld)", data_to_read, received_data_len);
+
+		if (data_to_read < received_data_len) {
+			LOG_E(video_receiver_tag, "Wrong package size (received > declared)");
+
+			break;
+		}
 
 		if (data_to_read > *buffer_size) {
 			uint8_t* resized_buffer = (uint8_t*)realloc(*buffer, data_to_read);
@@ -176,8 +187,6 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 
 		while (data_to_read > 0)
 		{
-			LOG_I(video_receiver_tag, "REM: %ld, READED: %ld", data_to_read, received_data_len);
-
 			uint8_t* buffer_base_ptr = *buffer;
 			ssize_t readed = recv(video_source_fd, buffer_base_ptr + received_data_len, data_to_read, 0);
 
@@ -189,7 +198,7 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			received_data_len += readed;
 		}
 
-		if (data_to_read) {
+		if (data_to_read > 0) {
 			LOG_E(video_receiver_tag, "Failed to read data chunks");
 
 			break;
