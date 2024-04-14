@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <pthread.h>
 #include <string.h>
+#include <glib.h>
 #include "accessory.h"
 #include "video/video_receiver.h"
 #include "usb_accessory/usb_accessory.h"
@@ -41,15 +42,19 @@ int usb_accessory_worker_start(void)
 {
 	while (1) {
 		pthread_t initial_device_thread_id;
-		int thread_result = 0;
+		gboolean initial_device_result = FALSE;
+
+		// Await for video source connection
 
 		video_receiver_await_connection();
+
+		// When video source is connected 
 
 		int result = pthread_create(
 			&initial_device_thread_id,
 			NULL,
 			usb_accessory_worker_initial_thread,
-			NULL
+			&initial_device_result
 		);
 
 		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
@@ -57,7 +62,12 @@ int usb_accessory_worker_start(void)
 		result = pthread_join(initial_device_thread_id, NULL);
 
 		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
-		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(thread_result);
+
+		if (initial_device_result == FALSE) {
+			usb_accessory_disable();
+
+			continue;
+		}
 
 		result = usb_active_accessory_create_and_wait(
 			USB_ACCESSORY_WORKER_USB_DRIVER_IO
@@ -71,43 +81,52 @@ int usb_accessory_worker_start(void)
 
 #pragma mark - Private methods implementation
 
-int usb_accessory_worker_is_start_requested(void)
-{
-	int fd = open(USB_ACCESSORY_WORKER_USB_DRIVER_IO, O_RDWR);
-
-	if (fd < 0)
-	{
-		LOG_E(usb_accessory_worker_log_tag, "Could not open %s", USB_ACCESSORY_WORKER_USB_DRIVER_IO);
-
-		return 0;
-	}
-
-	int result = ioctl(fd, ACCESSORY_IS_START_REQUESTED);
-
-	close(fd);
-
-	return result;
-}
-
 void *usb_accessory_worker_initial_thread(void *arg)
 {
+	if (arg == NULL) {
+		return NULL;
+	}
 
+	gboolean *result = (gboolean*)arg;
+	
 	LOG_I(usb_accessory_worker_log_tag, "Starting initial device ...");
 
-	int result = usb_accessory_reset();
-
-	if (result < 0) {
+	if (usb_accessory_reset() < 0) {
 		LOG_E(usb_accessory_worker_log_tag, "Can`t reset USB accessory!");
 
 		exit(EXIT_FAILURE);
 	}
 
-	while (usb_accessory_worker_is_start_requested() == 0)
+	int usb_accessory = open(USB_ACCESSORY_WORKER_USB_DRIVER_IO, O_RDWR);
+
+	if (usb_accessory < 0) {
+		*result = FALSE;
+
+		pthread_exit(NULL);
+
+		return NULL;
+	}
+
+	while (1)
 	{
+		int status = ioctl(usb_accessory, ACCESSORY_IS_START_REQUESTED);
+
+		if ((status < 0) || (video_receiver_is_connected() == FALSE)) {
+			*result = FALSE;
+
+			break;
+		} else if (status == 1) {
+			*result = TRUE;
+
+			break;
+		}
+
 		usleep(USB_ACCESSORY_WORKER_POLL_INTERVAL_US);
 	}
 
-	pthread_exit(&result);
+	close(usb_accessory);
+
+	pthread_exit(NULL);
 
 	return NULL;
 }
