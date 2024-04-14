@@ -17,5 +17,6 @@
 #define MESSAGE_DATA_TYPE_CUSTOM_STATUS				99
 
 #define MESSAGE_DEFAULT_CHUNK_SIZE                  512
+#define MESSAGE_DEFAULT_CHUNK_LOG2                  9
 
 #endif /* _DATA_TYPES_H_ */
