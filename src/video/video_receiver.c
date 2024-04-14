@@ -139,7 +139,7 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 	while (1) {
 		screen_header_t* header = NULL;
 		size_t data_to_read = 0;
-		ssize_t received_data_len = recv(video_source_fd, *buffer, *buffer_size, 0);
+		ssize_t received_data_len = recv(video_source_fd, *buffer, VIDEO_RECEIVER_SOCKET_HEADER_SIZE, 0);
 		ssize_t size_difference = 0;
 
 		if (received_data_len <= 0) {
@@ -157,6 +157,7 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 		}
 
 		data_to_read = bswap_32(header->common_header.total_size);
+		LOG_I(video_receiver_tag, "Got !BIN package: %ld (readed: %ld)", data_to_read, received_data_len);
 
 		if (data_to_read > *buffer_size) {
 			uint8_t* resized_buffer = (uint8_t*)realloc(*buffer, data_to_read);
