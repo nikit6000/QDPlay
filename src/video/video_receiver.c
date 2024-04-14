@@ -148,7 +148,7 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			break;
 		}
 
-		header = (screen_header_t*)buffer;
+		header = (screen_header_t*)(*buffer);
 
 		if (memcmp(header->common_header.binary_mark, MESSAGE_BINARY_HEADER, MESSAGE_BINARY_HEADER_LEN) != 0) {
 			LOG_E(video_receiver_tag, "Message binary mark not match");
