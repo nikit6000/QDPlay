@@ -29,8 +29,11 @@ typedef struct  {
 #pragma mark - Private propoerties
 
 gboolean video_sink_active = FALSE;
+gboolean video_receiver_connected = FALSE;
 pthread_t video_reveiver_thread_id;
-pthread_mutex_t video_receiver_mutex;
+pthread_mutex_t video_receiver_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t video_receiver_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t video_receiver_conn_cond = PTHREAD_COND_INITIALIZER;
 static gchar* video_receiver_tag = "VideoReceicer";
 
 #pragma mark - Private methods definitions
@@ -44,8 +47,6 @@ video_receiver_status_t video_receiver_start(void) {
     int buffer_size = VIDEO_RECEIVER_SOCKET_RCV_BUFFER_SIZE;
 	int double_buffer_size = 2 * buffer_size;
 	int video_receiver_fd;
-
-	pthread_mutex_init(&video_receiver_mutex, NULL);
 
     video_receiver_fd = socket(AF_UNIX, SOCK_STREAM, 0);
 
@@ -114,6 +115,21 @@ void video_receiver_deactivate(void) {
 	pthread_mutex_unlock(&video_receiver_mutex);
 }
 
+void video_receiver_await_connection(void) {
+	pthread_mutex_lock(&video_receiver_conn_mutex);
+
+	while (video_receiver_connected == FALSE)
+	{
+		pthread_cond_wait(&video_receiver_conn_cond, &video_receiver_conn_mutex);
+	}
+
+	pthread_mutex_unlock(&video_receiver_conn_mutex);
+}
+
+gboolean video_receiver_is_connected(void) {
+	return video_receiver_connected;
+}
+
 #pragma mark - Private methods implementation
 
 void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size) {
@@ -135,6 +151,13 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 	}
 
 	LOG_I(video_receiver_tag, "Video source connected!");
+
+	pthread_mutex_lock(&video_receiver_conn_mutex);
+
+	video_receiver_connected = TRUE;
+	pthread_cond_broadcast(&video_receiver_conn_cond);
+
+	pthread_mutex_unlock(&video_receiver_conn_mutex);
 
 	while (1) {
 		screen_header_t* header = NULL;
@@ -225,6 +248,13 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 	close(video_source_fd);
 
 	LOG_I(video_receiver_tag, "Video source disconnected!");
+
+	pthread_mutex_lock(&video_receiver_conn_mutex);
+
+	video_receiver_connected = FALSE;
+	pthread_cond_broadcast(&video_receiver_conn_cond);
+
+	pthread_mutex_unlock(&video_receiver_conn_mutex);
 }
 
 void* video_receiver_processing_thread(void * context) {

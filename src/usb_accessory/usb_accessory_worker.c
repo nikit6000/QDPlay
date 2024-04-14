@@ -8,6 +8,7 @@
 #include <pthread.h>
 #include <string.h>
 #include "accessory.h"
+#include "video/video_receiver.h"
 #include "usb_accessory/usb_accessory.h"
 #include "usb_accessory/usb_accessory_worker.h"
 #include "usb_accessory/usb_accessory_message_processor.h"
@@ -41,6 +42,8 @@ int usb_accessory_worker_start(void)
 	while (1) {
 		pthread_t initial_device_thread_id;
 		int thread_result = 0;
+
+		video_receiver_await_connection();
 
 		int result = pthread_create(
 			&initial_device_thread_id,

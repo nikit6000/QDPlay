@@ -221,7 +221,7 @@ void* usb_active_accessory_read_hb(void *arg) {
 
     pthread_mutex_unlock(&usb_active_accessory_state.read_mutex);
 
-    while (usb_active_accessory_state.is_accessory_connected)
+    while (usb_active_accessory_state.is_accessory_connected && video_receiver_is_connected())
     {
         unsigned long elapsed_time = usb_active_accessory_get_ts() - usb_active_accessory_state.last_read_ts;
 
