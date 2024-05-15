@@ -147,6 +147,7 @@ int usb_active_accessory_create_and_wait(const char* device_path) {
 
     usb_active_accessory_state.accessory_fd = -1;
     usb_active_accessory_state.is_accessory_connected = FALSE;
+    usb_active_accessory_state.processor = NULL;
 
     pthread_mutex_unlock(&usb_active_accessory_state.mutex);
 
@@ -161,6 +162,8 @@ int usb_active_accessory_create_and_wait(const char* device_path) {
 
         pthread_join(processing_thread, NULL);
     }
+
+    LOG_I(usb_active_accessory_log_tag, "Processing celeanup complete!");
 
     return 0;
 }
@@ -221,11 +224,9 @@ int usb_active_accessory_write(void *buffer, size_t len) {
 
 int usb_active_accessory_write_h264(message_processor_video_params_t video_parameters, void *buffer, size_t len) {
     int result = -EINVAL;
-    
-    pthread_mutex_lock(&usb_active_accessory_state.processor_mutex);
 
     if (usb_active_accessory_state.processor == NULL) {
-        LOG_E(usb_active_accessory_log_tag, "Can`t send heartbeat. Processor is NULL!");
+        LOG_E(usb_active_accessory_log_tag, "Can`t write video frame. Processor is NULL!");
 
         return result;
     }
@@ -235,8 +236,6 @@ int usb_active_accessory_write_h264(message_processor_video_params_t video_param
         buffer,
         len
     );
-
-    pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
 
     return result;
 }
@@ -293,12 +292,9 @@ void* usb_active_accessory_processor(void *arg) {
 
     while (usb_active_accessory_state.is_accessory_connected)
     {
-        pthread_mutex_lock(&usb_active_accessory_state.processor_mutex);
 
         if (usb_active_accessory_state.processor == NULL) {
             LOG_E(usb_active_accessory_log_tag, "usb_active_accessory_processor thread is started but, processor is NULL!");
-
-            pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
 
             return NULL;
         }
@@ -306,16 +302,12 @@ void* usb_active_accessory_processor(void *arg) {
         if (usb_active_accessory_state.processor->run() == FALSE) {
             LOG_E(usb_active_accessory_log_tag, "Message processing error!");
         }
-
-        pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
     }
 
     return NULL;
 }
 
 void usb_active_accessory_send_heartbeat(void) {
-
-    pthread_mutex_lock(&usb_active_accessory_state.processor_mutex);
 
     if (usb_active_accessory_state.processor == NULL) {
         LOG_E(usb_active_accessory_log_tag, "Can`t send heartbeat. Processor is NULL!");
@@ -324,8 +316,6 @@ void usb_active_accessory_send_heartbeat(void) {
     }
 
     usb_active_accessory_state.processor->write_hb();
-
-    pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
 }
 
 gboolean usb_active_accessory_probe(void) {

@@ -206,6 +206,8 @@ static gboolean message_processor_v1_run(void) {
         if (readed < 0) {
             LOG_E(message_processor_v1_tag, "Device disconnected!");
 
+            status = FALSE;
+
             break;
         }
     
@@ -213,6 +215,8 @@ static gboolean message_processor_v1_run(void) {
     
         if (memcmp(header->binary_mark, MESSAGE_BINARY_HEADER, MESSAGE_BINARY_HEADER_LEN) != 0) {
             LOG_E(message_processor_v1_tag, "Broken sequence!");
+
+            status = FALSE;
 
             break;
         }
