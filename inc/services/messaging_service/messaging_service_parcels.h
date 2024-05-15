@@ -26,16 +26,20 @@ typedef struct {
 } __attribute__((packed)) messaging_service_input_event_t;
 
 typedef struct {
+    uint32_t width;
+    uint32_t height;
+    uint32_t frame_rate;
+    uint32_t frame_size;
+} __attribute__((packed)) messaging_service_video_event_t;
+
+typedef struct {
     messaging_service_parcel_header_t header;
     messaging_service_input_event_t event;
 } __attribute__((packed)) messaging_service_parcel_input_t;
 
 typedef struct {
     messaging_service_parcel_header_t header;
-    uint32_t width;
-    uint32_t height;
-    uint32_t frame_rate;
-    uint32_t frame_size;
+    messaging_service_video_event_t event;
 } __attribute__((packed)) messaging_service_video_frame_t;
 
 #endif

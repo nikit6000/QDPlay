@@ -37,6 +37,35 @@ pthread_mutex_t video_receiver_conn_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t video_receiver_conn_cond = PTHREAD_COND_INITIALIZER;
 static gchar* video_receiver_tag = "VideoReceicer";
 
+void DumpHex(const void* data, size_t size) {
+	char ascii[17];
+	size_t i, j;
+	ascii[16] = '\0';
+	for (i = 0; i < size; ++i) {
+		printf("%02X ", ((unsigned char*)data)[i]);
+		if (((unsigned char*)data)[i] >= ' ' && ((unsigned char*)data)[i] <= '~') {
+			ascii[i % 16] = ((unsigned char*)data)[i];
+		} else {
+			ascii[i % 16] = '.';
+		}
+		if ((i+1) % 8 == 0 || i+1 == size) {
+			printf(" ");
+			if ((i+1) % 16 == 0) {
+				printf("|  %s \n", ascii);
+			} else if (i+1 == size) {
+				ascii[(i+1) % 16] = '\0';
+				if ((i+1) % 16 <= 8) {
+					printf(" ");
+				}
+				for (j = (i+1) % 16; j < 16; ++j) {
+					printf("   ");
+				}
+				printf("|  %s \n", ascii);
+			}
+		}
+	}
+}
+
 #pragma mark - Private methods definitions
 
 void* video_receiver_processing_thread(void * context);
@@ -172,8 +201,13 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			break;
 		}
 
-		if (received_data_len < sizeof(messaging_service_video_frame_t)) {
-			LOG_E(video_receiver_tag, "Sequence error, initial package has incorrect size");
+		if (received_data_len != sizeof(messaging_service_video_frame_t)) {
+			LOG_E(
+				video_receiver_tag, 
+				"Sequence error, initial package has incorrect size. %d != %d", 
+				received_data_len,
+				sizeof(messaging_service_video_frame_t)
+			);
 
 			break;
 		}
@@ -192,13 +226,11 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			break;
 		}
 
+		// Determinate full package size
+
 		data_to_read = bswap_32(video_frame->header.full_len);
 
-		if (data_to_read < received_data_len) {
-			LOG_E(video_receiver_tag, "Wrong package size (received > declared)");
-
-			break;
-		}
+		// Resize buffer if needed
 
 		if (data_to_read > *buffer_size) {
 			uint8_t* resized_buffer = (uint8_t*)realloc(*buffer, data_to_read);
@@ -211,7 +243,10 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 
 			*buffer_size = data_to_read;
 			*buffer = resized_buffer;
+			video_frame = (messaging_service_video_frame_t*)(*buffer);
 		}
+
+		// Substract already received data count
 
 		data_to_read -= received_data_len;
 
@@ -228,28 +263,38 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			received_data_len += readed;
 		}
 
-		if (data_to_read > 0) {
-			LOG_E(video_receiver_tag, "Failed to read data chunks");
+		if (data_to_read != 0) {
+			LOG_E(
+				video_receiver_tag, 
+				"Failed to read data chunks. Remaining data: %d",
+				data_to_read
+			);
 
 			break;
 		}
 
 		calculated_video_frame_size = received_data_len - sizeof(messaging_service_video_frame_t);
 
-		if (calculated_video_frame_size != bswap_32(video_frame->frame_size)) {
-			LOG_E(video_receiver_tag, "Calculated frame size not matched with declared size");
+		if (calculated_video_frame_size != bswap_32(video_frame->event.frame_size)) {
+			LOG_E(
+				video_receiver_tag, 
+				"Calculated frame size not matched with declared size: %d (%d - %d) != %d, full package size: 0x%X",
+				calculated_video_frame_size,
+				received_data_len,
+				sizeof(messaging_service_video_frame_t),
+				bswap_32(video_frame->event.frame_size),
+				bswap_32(video_frame->header.full_len)
+			);
 
 			break;
 		}
-		
-		pthread_mutex_lock(&video_receiver_mutex);
 
 		if (received_data_len > 0 && video_sink_active == TRUE) {
 
 			message_processor_video_params_t message_parameters = {
-				.width = bswap_32(video_frame->width),
-				.height = bswap_32(video_frame->height),
-				.frame_rate = bswap_32(video_frame->frame_rate)
+				.width = bswap_32(video_frame->event.width),
+				.height = bswap_32(video_frame->event.height),
+				.frame_rate = bswap_32(video_frame->event.frame_rate)
 			};
 
 			usb_active_accessory_write_h264(
@@ -258,8 +303,6 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 				calculated_video_frame_size
 			);
 		}
-
-		pthread_mutex_unlock(&video_receiver_mutex);
 	}
 
 	close(video_source_fd);

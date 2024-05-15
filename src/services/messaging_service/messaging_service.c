@@ -5,6 +5,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 #include <byteswap.h>
+#include "logging/logging.h"
 #include "services/messaging_service/messaging_service.h"
 
 #pragma mark - Private definitiosn
@@ -35,6 +36,8 @@ messaging_service_state_t messaging_service_state = {
     .broadcast_mutex = PTHREAD_MUTEX_INITIALIZER,
     .number_of_clients = 0
 };
+
+const gchar* messaging_service_tag = "MessagingService";
 
 #pragma mark - Private methods definition
 
@@ -143,6 +146,8 @@ void messaging_service_broadcast(uint8_t * data, size_t len) {
             continue;
         }
 
+        LOG_I(messaging_service_tag, "Client disconnected! (%d)", client_fd);
+
         close(client_fd);
 
         messaging_service_state.clients[client_index--] = messaging_service_state.clients[--messaging_service_state.number_of_clients];
@@ -155,6 +160,8 @@ void * messaging_service_handle_clients(void * context) {
     
     while (1) {
         int client_fd = accept(messaging_service_state.server_fd, NULL, NULL);
+
+        LOG_I(messaging_service_tag, "Client connected! (%d)", client_fd);
 
         if (client_fd < 0) {
             continue;

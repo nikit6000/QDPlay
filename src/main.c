@@ -6,6 +6,7 @@
 #include "services/messaging_service/messaging_service.h"
 
 int main(void) {
+	signal(SIGPIPE, SIG_IGN);
 
 	if (video_receiver_start() != VIDEO_RECEIVER_OK) {
 		return EXIT_FAILURE;
