@@ -33,6 +33,13 @@
         "video_sender.h": "c",
         "errno-base.h": "c",
         "logging.h": "c",
-        "usb_active_accessory.h": "c"
+        "usb_active_accessory.h": "c",
+        "video_receiver.h": "c",
+        "in.h": "c",
+        "messages.h": "c",
+        "pthread.h": "c",
+        "glib.h": "c",
+        "messaging_service_parcels.h": "c",
+        "message_processor.h": "c"
     }
 }

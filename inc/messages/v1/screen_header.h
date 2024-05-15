@@ -1,6 +1,7 @@
 #ifndef _SCREEN_HEADER_H_
 #define _SCREEN_HEADER_H_
 
+#include <glib.h>
 #include "common_header.h"
 
 #pragma mark - Internal definitions
@@ -51,12 +52,12 @@ typedef struct {
 
 #pragma mark - Internal methods definitions
 
-void screen_header_response_init(
-    screen_header_t * obj,
-    uint32_t width,
-    uint32_t height,
-    uint32_t frame_rate,
-    uint32_t frame_interval
+gboolean qd_screen_header_h264_response_init(
+	screen_header_t * obj,
+	uint32_t width,
+	uint32_t height,
+	uint32_t frame_rate,
+	uint32_t frame_interval
 );
 
 #endif /* _SCREEN_HEADER_H_ */

@@ -6,11 +6,12 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/stat.h>
-#include "messages/new_message_common_header.h"
+#include "messages/v2/message_common_header_v2.h"
+#include "messages/v1/app_status.h"
+#include "usb_accessory/message_processor/v1/message_processor_v1.h"
 #include "usb_accessory/usb_active_accessory.h"
-#include "usb_accessory/usb_accessory_message_processor.h"
 #include "usb_accessory/usb_accessory.h"
-#include "video/video_receiver.h"
+#include "services/video_receiver/video_receiver.h"
 #include "logging/logging.h"
 
 #pragma mark - Private definitions
@@ -18,6 +19,7 @@
 #define USB_ACTIVE_ACCESSORY_WRITE_HB_INTERVAL_SEC              (3)
 #define USB_ACTIVE_ACCESSORY_READ_HB_INTERVAL_SEC               (5)
 #define USB_ACTIVE_ACCESSORY_HB_CHECK_PERIOD_US 			    (1000)
+#define USB_ACTIVE_ACCESSORY_PROBE_PRERIOD_US                   (10000)
 #define USB_ACTIVE_ACCESSORY_WORKER_SEC_TO_US(x)                (1000000 * (x))
 
 #pragma mark - Private types
@@ -30,6 +32,8 @@ typedef struct {
     pthread_mutex_t mutex;
     pthread_mutex_t read_mutex;
     pthread_mutex_t write_mutex;
+    pthread_mutex_t processor_mutex;
+    const message_processor_t* processor;
 } usb_active_accessory_state_t;
 
 const gchar* usb_active_accessory_log_tag = "Active accessory";
@@ -43,23 +47,26 @@ usb_active_accessory_state_t usb_active_accessory_state = {
     .is_accessory_connected = FALSE,
     .mutex = PTHREAD_MUTEX_INITIALIZER,
     .read_mutex = PTHREAD_MUTEX_INITIALIZER,
-    .write_mutex = PTHREAD_MUTEX_INITIALIZER
+    .write_mutex = PTHREAD_MUTEX_INITIALIZER,
+    .processor_mutex = PTHREAD_MUTEX_INITIALIZER,
+    .processor = NULL
 };
 
 #pragma mark - Private function definitions
 
-unsigned long usb_active_accessory_get_ts(void);
-void* usb_active_accessory_read_hb(void *arg);
-void* usb_active_accessory_write_hb(void *arg);
-void* usb_active_accessory_processor(void *arg);
-void usb_active_accessory_send_heartbeat(void);
+unsigned long                   usb_active_accessory_get_ts(void);
+void*                           usb_active_accessory_read_hb(void *arg);
+void*                           usb_active_accessory_write_hb(void *arg);
+void*                           usb_active_accessory_processor(void *arg);
+void                            usb_active_accessory_send_heartbeat(void);
+gboolean                        usb_active_accessory_probe(void);
 
 #pragma mark - Internal function implementations
 
 int usb_active_accessory_create_and_wait(const char* device_path) {
     int accessory_fd = -1;
     int ret = -EALREADY;
-    pthread_t write_hb_thread = 0, read_hb_thread = 0, processing_thread = 0;
+    pthread_t write_hb_thread = -1, read_hb_thread = -1, processing_thread = -1;
 
     pthread_mutex_lock(&usb_active_accessory_state.mutex);
 
@@ -87,26 +94,12 @@ int usb_active_accessory_create_and_wait(const char* device_path) {
 
     usb_active_accessory_state.accessory_fd = accessory_fd;
     usb_active_accessory_state.is_accessory_connected = TRUE;
-    
-    pthread_mutex_unlock(&usb_active_accessory_state.mutex);
 
     LOG_I(usb_active_accessory_log_tag, "Device configured");
 
-    // Start HeartBeats and Processing threads 
+    pthread_mutex_unlock(&usb_active_accessory_state.mutex);
 
-    pthread_create(
-        &processing_thread,
-        NULL,
-        usb_active_accessory_processor,
-        NULL
-    );
-
-    pthread_create(
-        &write_hb_thread,
-        NULL,
-        usb_active_accessory_write_hb,
-        NULL
-    );
+    // Start read HB thread
 
     pthread_create(
         &read_hb_thread,
@@ -115,11 +108,28 @@ int usb_active_accessory_create_and_wait(const char* device_path) {
         NULL
     );
 
-    LOG_I(usb_active_accessory_log_tag, "Threads started");
+    if (usb_active_accessory_probe() == TRUE) {
+        
+        pthread_create(
+            &processing_thread,
+            NULL,
+            usb_active_accessory_processor,
+            NULL
+        );
 
-    // Wait only heart beat thread
+        pthread_create(
+            &write_hb_thread,
+            NULL,
+            usb_active_accessory_write_hb,
+            NULL
+        );
 
-    pthread_join(read_hb_thread, NULL);
+        LOG_I(usb_active_accessory_log_tag, "Accessory processor started!");
+    }
+
+    if (read_hb_thread > 0) {
+        pthread_join(read_hb_thread, NULL);
+    }
 
     LOG_I(usb_active_accessory_log_tag, "Accessory disconnected");
 
@@ -140,11 +150,17 @@ int usb_active_accessory_create_and_wait(const char* device_path) {
 
     pthread_mutex_unlock(&usb_active_accessory_state.mutex);
 
-    LOG_I(usb_active_accessory_log_tag, "Waiting write hb thread");
-    pthread_join(write_hb_thread, NULL);
+    if (write_hb_thread > 0) {
+        LOG_I(usb_active_accessory_log_tag, "Waiting write hb thread");
 
-    LOG_I(usb_active_accessory_log_tag, "Waiting processing thread");
-    pthread_join(processing_thread, NULL);
+        pthread_join(write_hb_thread, NULL);
+    }
+
+    if (processing_thread > 0) {
+        LOG_I(usb_active_accessory_log_tag, "Waiting processing thread");
+
+        pthread_join(processing_thread, NULL);
+    }
 
     return 0;
 }
@@ -203,6 +219,28 @@ int usb_active_accessory_write(void *buffer, size_t len) {
     return ret;
 }
 
+int usb_active_accessory_write_h264(message_processor_video_params_t video_parameters, void *buffer, size_t len) {
+    int result = -EINVAL;
+    
+    pthread_mutex_lock(&usb_active_accessory_state.processor_mutex);
+
+    if (usb_active_accessory_state.processor == NULL) {
+        LOG_E(usb_active_accessory_log_tag, "Can`t send heartbeat. Processor is NULL!");
+
+        return result;
+    }
+
+    result = usb_active_accessory_state.processor->write_h264(
+        video_parameters,
+        buffer,
+        len
+    );
+
+    pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
+
+    return result;
+}
+
 #pragma mark - Private function implementations
 
 unsigned long usb_active_accessory_get_ts(void) {
@@ -253,26 +291,100 @@ void* usb_active_accessory_write_hb(void *arg) {
 
 void* usb_active_accessory_processor(void *arg) {
 
-    usb_accessory_message_processor_setup();
-
     while (usb_active_accessory_state.is_accessory_connected)
     {
-        if (usb_accessory_message_processor_handle() != USB_ACCESSORY_MSG_OK) {
-			LOG_E(usb_active_accessory_log_tag, "Message processing error!");
-		}
+        pthread_mutex_lock(&usb_active_accessory_state.processor_mutex);
+
+        if (usb_active_accessory_state.processor == NULL) {
+            LOG_E(usb_active_accessory_log_tag, "usb_active_accessory_processor thread is started but, processor is NULL!");
+
+            pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
+
+            return NULL;
+        }
+
+        if (usb_active_accessory_state.processor->run() == FALSE) {
+            LOG_E(usb_active_accessory_log_tag, "Message processing error!");
+        }
+
+        pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
     }
 
     return NULL;
 }
 
 void usb_active_accessory_send_heartbeat(void) {
-    uint8_t buffer[MESSAGE_DEFAULT_CHUNK_SIZE];
 
-    memset(buffer, 0, MESSAGE_DEFAULT_CHUNK_SIZE);
+    pthread_mutex_lock(&usb_active_accessory_state.processor_mutex);
 
-    if (new_message_heartbeat_init(buffer, MESSAGE_DEFAULT_CHUNK_SIZE) < 0) {
+    if (usb_active_accessory_state.processor == NULL) {
+        LOG_E(usb_active_accessory_log_tag, "Can`t send heartbeat. Processor is NULL!");
+
         return;
     }
 
-    usb_active_accessory_write(buffer, MESSAGE_DEFAULT_CHUNK_SIZE);
+    usb_active_accessory_state.processor->write_hb();
+
+    pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
+}
+
+gboolean usb_active_accessory_probe(void) {
+    uint8_t* buffer = (uint8_t*)malloc(MESSAGE_DEFAULT_CHUNK_SIZE);
+
+    const message_processor_t* processors[] = {
+        message_processor_v1_get()
+    };
+
+    if (!buffer) {
+        LOG_E(usb_active_accessory_log_tag, "Can`t allocate memory for probing!");
+
+        return FALSE;
+    }
+    
+    memset((void*)buffer, 0, MESSAGE_DEFAULT_CHUNK_SIZE);
+    
+    // Send an app_status request to check the protocol type
+
+    app_status_response_init((app_status_t *)buffer);
+
+    while(usb_active_accessory_write((void*)buffer, MESSAGE_DEFAULT_CHUNK_SIZE) < 0) {
+
+        if (errno != ENODEV) {
+            break;
+        }
+
+        LOG_I(usb_active_accessory_log_tag, "Awaiting accessory ...");
+        
+        usleep(USB_ACTIVE_ACCESSORY_PROBE_PRERIOD_US);
+    }
+
+    LOG_I(usb_active_accessory_log_tag, "Reading response ...");
+
+    if (usb_active_accessory_read((void*)buffer, MESSAGE_DEFAULT_CHUNK_SIZE) <= 0) {
+        free(buffer);
+    
+        return FALSE;
+    }
+
+    pthread_mutex_lock(&usb_active_accessory_state.processor_mutex);
+
+    LOG_I(usb_active_accessory_log_tag, "Searching for processor (total count: %d)", sizeof(processors) / sizeof(message_processor_t*));
+
+    for (int i = 0; i < sizeof(processors) / sizeof(message_processor_t*); i++) {
+        const message_processor_t* current_processor = processors[i];
+
+        if (current_processor->probe(buffer, MESSAGE_DEFAULT_CHUNK_SIZE) == TRUE) {
+            usb_active_accessory_state.processor = current_processor;
+            
+            break;
+        }
+    }
+
+    pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
+
+    LOG_I(usb_active_accessory_log_tag, "Probe finished: %s", usb_active_accessory_state.processor == NULL ? "OK" : "NOT FOUND");
+    
+    free(buffer);
+
+    return TRUE;
 }

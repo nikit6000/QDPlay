@@ -1,6 +1,6 @@
 #include <string.h>
 #include <netinet/in.h>
-#include "messages/mirror_support.h"
+#include "messages/v1/mirror_support.h"
 #include "macros/data_types.h"
 #include "macros/comand_types.h"
 

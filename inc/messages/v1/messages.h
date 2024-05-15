@@ -14,5 +14,6 @@
 #include "speech_status.h"
 #include "upgrade.h"
 #include "version.h"
+#include "heart_beat_v1.h"
 
 #endif /* _MESSAGES_H_ */

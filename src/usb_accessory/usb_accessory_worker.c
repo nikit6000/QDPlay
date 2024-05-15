@@ -9,10 +9,9 @@
 #include <string.h>
 #include <glib.h>
 #include "accessory.h"
-#include "video/video_receiver.h"
+#include "services/video_receiver/video_receiver.h"
 #include "usb_accessory/usb_accessory.h"
 #include "usb_accessory/usb_accessory_worker.h"
-#include "usb_accessory/usb_accessory_message_processor.h"
 #include "usb_accessory/usb_active_accessory.h"
 #include "logging/logging.h"
 

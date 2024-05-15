@@ -1,13 +1,12 @@
-#include <netinet/in.h>
-#include <stdlib.h>
 #include <string.h>
-#include "messages/version.h"
+#include <netinet/in.h>
+#include "messages/v1/upgrade.h"
 #include "macros/data_types.h"
 #include "macros/comand_types.h"
 
 #pragma mark - Internal methods implementations
 
-void version_response_init(version_t * obj) {
+void upgrade_response_init(upgrade_t * obj) {
     if (!obj) {
         return;
     }
@@ -19,10 +18,11 @@ void version_response_init(version_t * obj) {
     obj->common_header.common_header_size = ntohl(64);
     obj->common_header.request_header_size = ntohl(128);
     obj->common_header.response_header_size = ntohl(128);
-    obj->common_header.action = ntohl(1);
-    obj->common_command_header.cmd = ntohl(MESSAGE_CMD_VERSION);
-    obj->ret = ntohl(24);
-    
+    obj->common_header.action = ntohl(2);
+    obj->common_command_header.time_stamp = ntohl(0);
+    obj->common_command_header.cmd = ntohl(MESSAGE_CMD_UPGRADE);
+    obj->value = ntohl(5);
+
     for (int i = 0; i < 32; i++) {
         obj->common_header.mark[i] = i + 32;
     }

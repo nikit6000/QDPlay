@@ -1,5 +1,5 @@
-#ifndef _NEW_MESSAGE_COMMON_HEADER_H_
-#define _NEW_MESSAGE_COMMON_HEADER_H_
+#ifndef _MESSAGE_COMMON_HEADER_V2_H_
+#define _MESSAGE_COMMON_HEADER_V2_H_
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -15,7 +15,7 @@ typedef struct {
     /* 13 */ uint8_t payload_format;
     /* 14 */ uint8_t reserved;
     /* 15 */ uint8_t unk0;
-} __attribute__((packed)) new_message_common_header_t;
+} __attribute__((packed)) message_common_header_v2_t;
 
 #pragma mark - Internal function definitions
 

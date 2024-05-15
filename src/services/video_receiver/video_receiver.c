@@ -10,9 +10,10 @@
 #include <logging/logging.h>
 #include <byteswap.h>
 #include "macros/data_types.h"
-#include "video/video_receiver.h"
-#include "messages/screen_header.h"
+#include "messages/v1/screen_header.h"
 #include "usb_accessory/usb_active_accessory.h"
+#include "services/video_receiver/video_receiver.h"
+#include "services/messaging_service/messaging_service_parcels.h"
 
 #define VIDEO_RECEIVER_SOCKET_PATH                      "/tmp/qdplay.video.socket"
 #define VIDEO_RECEIVER_SOCKET_MAXIMUM_CONN              (1)
@@ -21,7 +22,7 @@
 
 #pragma mark - Private types
 
-typedef struct  {
+typedef struct {
 	int fd;
 	int buffer_size;
 } video_receiver_context_t;
@@ -160,10 +161,10 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 	pthread_mutex_unlock(&video_receiver_conn_mutex);
 
 	while (1) {
-		screen_header_t* header = NULL;
+		messaging_service_video_frame_t* video_frame = NULL;
 		size_t data_to_read = 0;
-		ssize_t received_data_len = recv(video_source_fd, *buffer, VIDEO_RECEIVER_SOCKET_HEADER_SIZE, 0);
-		ssize_t size_difference = 0;
+		size_t calculated_video_frame_size = 0;
+		ssize_t received_data_len = recv(video_source_fd, *buffer, sizeof(messaging_service_video_frame_t), 0);
 
 		if (received_data_len <= 0) {
 			LOG_E(video_receiver_tag, "Can`t read data: %d", received_data_len);
@@ -171,21 +172,27 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			break;
 		}
 
-		if (received_data_len < VIDEO_RECEIVER_SOCKET_HEADER_SIZE) {
+		if (received_data_len < sizeof(messaging_service_video_frame_t)) {
 			LOG_E(video_receiver_tag, "Sequence error, initial package has incorrect size");
 
 			break;
 		}
 
-		header = (screen_header_t*)(*buffer);
+		video_frame = (messaging_service_video_frame_t*)(*buffer);
 
-		if (memcmp(header->common_header.binary_mark, MESSAGE_BINARY_HEADER, MESSAGE_BINARY_HEADER_LEN) != 0) {
+		if (video_frame->header.mark != bswap_32(MESSAGING_SERVICE_MARK)) {
 			LOG_E(video_receiver_tag, "Message binary mark not matched");
 
 			break;
 		}
 
-		data_to_read = bswap_32(header->common_header.total_size);
+		if (video_frame->header.event_id != bswap_32(MESSAGING_SERVICE_H264_FRAME_EVENT)) {
+			LOG_E(video_receiver_tag, "Message has wrong event_id");
+
+			break;
+		}
+
+		data_to_read = bswap_32(video_frame->header.full_len);
 
 		if (data_to_read < received_data_len) {
 			LOG_E(video_receiver_tag, "Wrong package size (received > declared)");
@@ -227,19 +234,29 @@ void video_receiver_handle_client(int fd, uint8_t** buffer, size_t *buffer_size)
 			break;
 		}
 
-		size_difference = received_data_len >> MESSAGE_DEFAULT_CHUNK_LOG2;
-		size_difference = size_difference << MESSAGE_DEFAULT_CHUNK_LOG2;
+		calculated_video_frame_size = received_data_len - sizeof(messaging_service_video_frame_t);
 
-		if (received_data_len - size_difference) {
-			LOG_W(video_receiver_tag, "Received data is not aligned!");
+		if (calculated_video_frame_size != bswap_32(video_frame->frame_size)) {
+			LOG_E(video_receiver_tag, "Calculated frame size not matched with declared size");
 
-			continue;
+			break;
 		}
-
+		
 		pthread_mutex_lock(&video_receiver_mutex);
 
 		if (received_data_len > 0 && video_sink_active == TRUE) {
-			usb_active_accessory_write(*buffer, received_data_len);
+
+			message_processor_video_params_t message_parameters = {
+				.width = bswap_32(video_frame->width),
+				.height = bswap_32(video_frame->height),
+				.frame_rate = bswap_32(video_frame->frame_rate)
+			};
+
+			usb_active_accessory_write_h264(
+				message_parameters,
+				(void*)(*buffer + sizeof(messaging_service_video_frame_t)),
+				calculated_video_frame_size
+			);
 		}
 
 		pthread_mutex_unlock(&video_receiver_mutex);

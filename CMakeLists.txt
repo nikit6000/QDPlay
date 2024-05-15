@@ -15,22 +15,36 @@ set(PROJECT_SRC
     "src/main.c"
     "src/usb_accessory/usb_accessory.c"
     "src/usb_accessory/usb_accessory_worker.c"
-    "src/usb_accessory/usb_accessory_message_processor.c"
     "src/usb_accessory/usb_active_accessory.c"
     "src/hu_message.c"
     "src/utils/crc16.c"
     "src/utils/common_utils.c"
-    "src/messages/app_message.c"
-    "src/messages/speech.c"
-    "src/messages/version.c"
-    "src/messages/app_status.c"
-    "src/messages/upgrade.c"
-    "src/messages/mirror_support.c"
-    "src/messages/land_mode.c"
-    "src/messages/screen_header.c"
-    "src/messages/new_message_common_header.c"
-    "src/video/video_receiver.c"
+
+    # V1 messages
+
+    "src/messages/v1/app_message.c"
+    "src/messages/v1/speech.c"
+    "src/messages/v1/version.c"
+    "src/messages/v1/app_status.c"
+    "src/messages/v1/upgrade.c"
+    "src/messages/v1/mirror_support.c"
+    "src/messages/v1/land_mode.c"
+    "src/messages/v1/screen_header.c"
+    "src/messages/v1/heart_beat_v1.c"
+
+    # V2 messages
+
+    "src/messages/v2/message_common_header_v2.c"
+
+    # Services
+
+    "src/services/video_receiver/video_receiver.c"
+    "src/services/messaging_service/messaging_service.c"
 	"src/logging/logging.c"
+
+    # V1 message processor
+
+    "src/usb_accessory/message_processor/v1/message_processor_v1.c"
 )
 
 set(PROJECT_INC_DIR
@@ -63,9 +77,9 @@ target_link_libraries(
 	pthread
 )
 
-install(
-    TARGETS
-    ${PROJECT_NAME}
-    DESTINATION
-    bin
-)
+# install(
+#     TARGETS
+#     ${PROJECT_NAME}
+#     DESTINATION
+#     bin
+# )
