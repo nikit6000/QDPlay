@@ -113,7 +113,7 @@ void messaging_service_send_key_frame_req(void) {
         .payload_len = 0
     };
 
-    messaging_service_broadcast((uint8_t*)&message, sizeof(messaging_service_parcel_input_t));
+    messaging_service_broadcast((uint8_t*)&message, sizeof(messaging_service_parcel_header_t));
 }
 
 void messaging_service_send_input_event(messaging_service_input_event_t event) {
