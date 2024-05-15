@@ -104,7 +104,7 @@ gboolean messaging_service_init(void) {
 
 void messaging_service_send_key_frame_req(void) {
     messaging_service_parcel_header_t message = {
-        .mark = MESSAGING_SERVICE_MARK,
+        .mark = bswap_32(MESSAGING_SERVICE_MARK),
         .event_id = bswap_32(MESSAGING_SERVICE_KEY_FRAME_REQ_EVENT),
         .full_len = bswap_32(sizeof(messaging_service_parcel_header_t)),
         .payload_len = 0
@@ -116,7 +116,7 @@ void messaging_service_send_key_frame_req(void) {
 void messaging_service_send_input_event(messaging_service_input_event_t event) {
     messaging_service_parcel_input_t message = {
         .header = {
-            .mark = MESSAGING_SERVICE_MARK,
+            .mark = bswap_32(MESSAGING_SERVICE_MARK),
             .event_id = bswap_32(MESSAGING_SERVICE_INPUT_EVENT),
             .full_len = bswap_32(sizeof(messaging_service_parcel_input_t)),
             .payload_len = bswap_32(sizeof(messaging_service_input_event_t))
