@@ -9,6 +9,7 @@
 #include "messages/v2/message_common_header_v2.h"
 #include "messages/v1/app_status.h"
 #include "usb_accessory/message_processor/v1/message_processor_v1.h"
+#include "usb_accessory/message_processor/v2/message_processor_v2.h"
 #include "usb_accessory/usb_active_accessory.h"
 #include "usb_accessory/usb_accessory.h"
 #include "services/video_receiver/video_receiver.h"
@@ -16,6 +17,8 @@
 
 #pragma mark - Private definitions
 
+#define USB_ACTIVE_ACCESSORY_CHUNK_SIZE_512                     (512)
+#define USB_ACTIVE_ACCESSORY_CHUNK_SIZE_512_LOG2                (9)
 #define USB_ACTIVE_ACCESSORY_WRITE_HB_INTERVAL_SEC              (3)
 #define USB_ACTIVE_ACCESSORY_READ_HB_INTERVAL_SEC               (5)
 #define USB_ACTIVE_ACCESSORY_HB_CHECK_PERIOD_US 			    (1000)
@@ -222,6 +225,86 @@ int usb_active_accessory_write(void *buffer, size_t len) {
     return ret;
 }
 
+int usb_active_accessory_write_with_padding_512(
+    void *header,
+    size_t header_len,
+    void *body,
+    size_t body_len
+) {
+    static uint8_t *send_buffer = NULL;
+    static size_t send_buffer_size = 0;
+
+    int written = 0;
+    int accessory_fd = usb_active_accessory_fd();
+    uint8_t *send_buffer_cursor = NULL;
+    size_t padding_size = 0;
+    size_t full_message_size = header_len + body_len;
+    size_t chunked_message_size = (full_message_size >> USB_ACTIVE_ACCESSORY_CHUNK_SIZE_512_LOG2) << USB_ACTIVE_ACCESSORY_CHUNK_SIZE_512_LOG2;
+
+    if (chunked_message_size < full_message_size) {
+        chunked_message_size += USB_ACTIVE_ACCESSORY_CHUNK_SIZE_512;
+    }
+
+    padding_size = chunked_message_size - full_message_size;
+
+    if (accessory_fd <= 0) {
+        return -EIO;
+    }
+
+    pthread_mutex_lock(&usb_active_accessory_state.write_mutex);
+
+    if ((chunked_message_size > send_buffer_size) || (send_buffer == NULL)) {
+        uint8_t *resized_buffer = (uint8_t*)realloc(send_buffer, chunked_message_size);
+
+        if (resized_buffer == NULL) {
+            pthread_mutex_unlock(&usb_active_accessory_state.write_mutex);
+
+            return -ENOMEM;
+        }
+
+        send_buffer = resized_buffer;
+        send_buffer_size = chunked_message_size;
+    }
+
+    send_buffer_cursor = send_buffer;
+
+    if (header && header_len) {
+        memcpy(
+            send_buffer_cursor,
+            header,
+            header_len
+        );
+
+        send_buffer_cursor += header_len;
+    }
+
+    if (body && body_len) {
+        memcpy(
+            send_buffer_cursor,
+            body,
+            body_len
+        );
+
+        send_buffer_cursor += body_len;
+    }
+
+    if (padding_size) {
+        memset(
+            send_buffer_cursor,
+            0,
+            padding_size
+        );
+
+        send_buffer_cursor += padding_size;
+    }
+
+    written = write(accessory_fd, send_buffer, chunked_message_size);
+    
+    pthread_mutex_unlock(&usb_active_accessory_state.write_mutex);
+
+    return written;
+}
+
 int usb_active_accessory_write_h264(message_processor_video_params_t video_parameters, void *buffer, size_t len) {
     int result = -EINVAL;
 
@@ -322,7 +405,8 @@ gboolean usb_active_accessory_probe(void) {
     uint8_t* buffer = (uint8_t*)malloc(MESSAGE_DEFAULT_CHUNK_SIZE);
 
     const message_processor_t* processors[] = {
-        message_processor_v1_get()
+        message_processor_v1_get(),
+        message_processor_v2_get()
     };
 
     if (!buffer) {
@@ -370,10 +454,16 @@ gboolean usb_active_accessory_probe(void) {
         }
     }
 
-    pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
+    LOG_I(usb_active_accessory_log_tag, "Probe finished: %s", usb_active_accessory_state.processor == NULL ? "NOT FOUND" : "OK");
 
-    LOG_I(usb_active_accessory_log_tag, "Probe finished: %s", usb_active_accessory_state.processor == NULL ? "OK" : "NOT FOUND");
-    
+    if (usb_active_accessory_state.processor == NULL) {
+        pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
+        free(buffer);
+        
+        return FALSE;
+    }
+
+    pthread_mutex_unlock(&usb_active_accessory_state.processor_mutex);
     free(buffer);
 
     return TRUE;

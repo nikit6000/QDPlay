@@ -19,6 +19,7 @@ set(PROJECT_SRC
     "src/hu_message.c"
     "src/utils/crc16.c"
     "src/utils/common_utils.c"
+    "src/utils/cJSON.c"
 
     # V1 messages
 
@@ -34,7 +35,15 @@ set(PROJECT_SRC
 
     # V2 messages
 
-    "src/messages/v2/message_common_header_v2.c"
+    "src/messages/v2/message_heart_beat_v2.c"
+    "src/messages/v2/message_phone_info_v2.c"
+    "src/messages/v2/message_car_info_parameters_v2.c"
+    "src/messages/v2/message_cmd_response_v2.c"
+    "src/messages/v2/message_video_ctrl_parameters_v2.c"
+    "src/messages/v2/message_video_support_prarameters_v2.c"
+    "src/messages/v2/message_video_frame_v2.c"
+    "src/messages/v2/message_update_status_v2.c"
+    "src/messages/v2/message_touch_event_v2.c"
 
     # Services
 
@@ -45,6 +54,10 @@ set(PROJECT_SRC
     # V1 message processor
 
     "src/usb_accessory/message_processor/v1/message_processor_v1.c"
+
+    # V2 message processor
+
+    "src/usb_accessory/message_processor/v2/message_processor_v2.c"
 )
 
 set(PROJECT_INC_DIR

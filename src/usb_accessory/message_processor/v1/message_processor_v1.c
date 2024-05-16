@@ -26,6 +26,10 @@
 #define MESSAGE_PROCESSOR_V1_PROBE_CHECK_INTERVAL_US                    (10000) // 10 ms
 #define MESSAGE_PROCESSOR_V1_DEFAULT_FRAME_INTERVAL_SEC                 (1)
 
+#define MESSAGE_PROCESSOR_V1_INPUT_EVENT_DOWN                           (-32768)
+#define MESSAGE_PROCESSOR_V1_INPUT_EVENT_UP                             (-32766)
+#define MESSAGE_PROCESSOR_V1_INPUT_EVENT_MOVE                           (-32767)
+
 #pragma mark - Private methods definitions
 
 static gboolean    message_processor_v1_probe(uint8_t * buffer, size_t len);
@@ -580,15 +584,33 @@ static gboolean message_processor_v1_handle_screen(common_header_t * header, uin
 
 static gboolean message_processor_v1_handle_control(common_header_t * header, uint8_t* buffer, size_t len) {
     input_control_t* input_control = (input_control_t*)buffer;
+    int16_t car_action = 0;
+    int16_t messaging_service_action = 0;
 
     if (input_control == NULL || len < sizeof(input_control_t)) {
         return FALSE;
     }
 
+    car_action = bswap_16(input_control->event_type);
+
+    switch (car_action) {
+    case MESSAGE_PROCESSOR_V1_INPUT_EVENT_DOWN:
+        messaging_service_action = MESSAGING_SERVICE_INPUT_EVENT_DOWN;
+        break;
+
+    case MESSAGE_PROCESSOR_V1_INPUT_EVENT_MOVE:
+        messaging_service_action = MESSAGING_SERVICE_INPUT_EVENT_MOVE;
+        break;
+    
+    default:
+         messaging_service_action = MESSAGING_SERVICE_INPUT_EVENT_UP;
+        break;
+    }
+
     // Handle touch screen data here
 
     messaging_service_input_event_t input_event = {
-        .action = bswap_16(input_control->event_type),
+        .action = messaging_service_action,
         .x = bswap_16(input_control->event_value0),
         .y = bswap_16(input_control->event_value1)
     };

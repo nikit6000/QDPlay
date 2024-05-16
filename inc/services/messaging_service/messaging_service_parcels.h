@@ -10,6 +10,10 @@
 #define MESSAGING_SERVICE_INPUT_EVENT                           (2)
 #define MESSAGING_SERVICE_H264_FRAME_EVENT                      (3)
 
+#define MESSAGING_SERVICE_INPUT_EVENT_DOWN                      (0)
+#define MESSAGING_SERVICE_INPUT_EVENT_UP                        (1)
+#define MESSAGING_SERVICE_INPUT_EVENT_MOVE                      (2)
+
 #pragma mark - Intarnal types
 
 typedef struct {

@@ -40,6 +40,17 @@
         "pthread.h": "c",
         "glib.h": "c",
         "messaging_service_parcels.h": "c",
-        "message_processor.h": "c"
+        "message_processor.h": "c",
+        "message_common_header_v2.h": "c",
+        "message_phone_info_v2.h": "c",
+        "message_heart_beat_v2.h": "c",
+        "message_car_info_response_v2.h": "c",
+        "message_cmd_response_v2.h": "c",
+        "cjson.h": "c",
+        "message_video_support_prarameters_v2.h": "c",
+        "message_video_frame_v2.h": "c",
+        "message_processor_v2.h": "c",
+        "message_video_ctrl_parameters_v2.h": "c",
+        "message_car_info_parameters_v2.h": "c"
     }
 }
