@@ -172,10 +172,8 @@ int main(int argc, char ** argv) {
 
     return -1;
 }
-
-
-Исходные коды данного обработчика можно найти [тут](control-receiver).
 ```
+Исходные коды данного обработчика можно найти [тут](control-receiver).
 
 
 
