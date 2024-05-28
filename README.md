@@ -35,7 +35,7 @@ WantedBy=multi-user.target
 Вместо `<ширина>` и `<высота>` вам нужно вставить свои значения.
 
 ## MFI
-Для работы CarPlay вам необходимо припаять чип `mfi337s3959` к шине `i2c` согласно [схеме](hardware/opi-zero-2w/orange-pi-zero-2w-mfi.pdf). Самый простой способ это сделать - заказать на производстве платы по данным [Gerber файлам](hardware/opi-zero-2w/orange-pi-zero-2w-mfi-gerber.zip), и собрать ее. 
+Для работы CarPlay вам необходимо припаять чип `mfi337s3959` к шине `i2c` согласно [схеме](hardware/opi-zero-2w/orange-pi-zero-2w-mfi.pdf). Самый простой способ это сделать - заказать на производстве плату по данным [Gerber файлам](hardware/opi-zero-2w/orange-pi-zero-2w-mfi-gerber.zip), и собрать ее. 
 Так же доступна [3D модель](hardware/opi-zero-2w/case/) корпуса, готовая к печати на 3D принтере.
 
 ## Bluetooth
