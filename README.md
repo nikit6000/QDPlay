@@ -75,12 +75,12 @@ qd_screen_impl_ref screen = qd_screen_connect(video_width, video_height, frame_r
 ```C
 int ret = qd_screen_send_data(
     screen, // подключение к экрану
-    (const uint8_t*)data, // h264 фрейм, начинающийсы с 0x00 0x00 0x00 0x01
+    (const uint8_t*)data, // h264 фрейм, начинающийся с 0x00 0x00 0x00 0x01
     (size_t)len // размер фрейма в байтах
 );
 ```
 
-Если неободимо завершить трансляцию, то необходимо удалить сущность экрана и отключиться от сокета:
+Если нужно завершить трансляцию, то необходимо удалить сущность экрана и отключиться от сокета:
 ```C
 qd_screen_close(screen);
 ```
