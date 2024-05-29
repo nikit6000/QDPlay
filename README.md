@@ -55,47 +55,7 @@ WantedBy=multi-user.target
 Крайне не рекомендуется выводить на ГУ, что-то кроме автомобильных ассистентов!
 
 ## Вывод видео
-Для начала определите следующие типы данных:
-
-```C
-// Сушность экрана
-struct qd_screen_impl {
-    int sink_fd;
-    uint8_t* buffer;
-    size_t buffer_size;
-    uint32_t width;
-	  uint32_t height;
-	  uint32_t frame_rate;
-};
-typedef struct qd_screen_impl* qd_screen_ref;
-
-// Заголовок протокола предачи видео
-
-typedef struct {
-    uint32_t mark;
-    uint32_t event_id;
-    uint32_t full_len;
-    uint32_t payload_len;
-} __attribute__((packed)) qd_sceen_parcel_header_t;
-
-// Событие предачи h264 фрейма
-
-typedef struct {
-	  uint32_t width;
-    uint32_t height;
-    uint32_t frame_rate;
-    uint32_t frame_size;
-} __attribute__((packed)) qd_sceen_parcel_video_event_t;
-
-// Комбинированный заголовок
-
-typedef struct {
-    qd_sceen_parcel_header_t header;
-    qd_sceen_parcel_video_event_t event;
-} __attribute__((packed)) qd_screen_video_frame_t;
-```
-
-Далее подключитесь к локальному сокету QDPlay:
+Для начала подключитесь к локальному сокету QDPlay:
 ```C
 #include "qd_video_sender.h"
 ...
