@@ -2,11 +2,14 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <sys/time.h>
+#include <sys/socket.h>
+#include <linux/netlink.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <unistd.h>
-#include <pthread.h>
+#include <errno.h>
 #include <string.h>
+#include <time.h>
 #include <glib.h>
 #include "accessory.h"
 #include "services/video_receiver/video_receiver.h"
@@ -15,117 +18,206 @@
 #include "usb_accessory/usb_active_accessory.h"
 #include "logging/logging.h"
 
+/*
+ * Android Open Accessory emulation, device side.
+ *
+ *   1. INITIAL: the gadget looks like a Samsung phone. The head unit (USB host) sends
+ *      ACCESSORY_GET_PROTOCOL / SEND_STRING / START; f_accessory answers them and
+ *      raises start_requested (plus an "ACCESSORY=START" uevent).
+ *   2. ACCESSORY: the gadget re-enumerates as 18d1:2d00, the head unit opens the bulk
+ *      endpoints and the QDLink session runs (usb_active_accessory_run_session).
+ *   3. When the session ends, everything starts over from INITIAL.
+ *
+ * The gadget is only presented while at least one video source is connected.
+ */
+
 #pragma mark - Private definitions
 
-#define USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(x) \
-	do                                             \
-	{                                              \
-		if (x != 0)                                \
-			return x;                              \
-	} while (0);
+#define USB_ACCESSORY_WORKER_DEVICE_PATH            "/dev/usb_accessory"
+// Fallback polling of start_requested if uevents are not available
+#define USB_ACCESSORY_WORKER_POLL_INTERVAL_MS       (100)
+#define USB_ACCESSORY_WORKER_RETRY_MIN_US           (250000)
+#define USB_ACCESSORY_WORKER_RETRY_MAX_US           (5000000)
+#define USB_ACCESSORY_WORKER_UEVENT_BUFFER_SIZE     (4096)
 
-#define USB_ACCESSORY_WORKER_USB_DRIVER_IO 						"/dev/usb_accessory"
-#define USB_ACCESSORY_WORKER_POLL_INTERVAL_US 					(10000)
+typedef enum {
+    WAIT_START_REQUESTED = 0,
+    WAIT_NO_SOURCE,
+    WAIT_ERROR
+} wait_result_t;
 
 #pragma mark - Private properties
 
-const gchar* usb_accessory_worker_log_tag = "Inactive accessory";
-#pragma mark - Private methods definition
+static const gchar* usb_accessory_worker_log_tag = "AOA";
 
-int usb_accessory_worker_is_start_requested(void);
-void *usb_accessory_worker_initial_thread(void *arg);
+#pragma mark - Helpers
+
+static void worker_sleep_us(long us) {
+    struct timespec request = { .tv_sec = us / 1000000, .tv_nsec = (us % 1000000) * 1000 };
+    struct timespec remaining;
+
+    while (nanosleep(&request, &remaining) < 0 && errno == EINTR) {
+        request = remaining;
+    }
+}
+
+static int open_uevent_socket(void) {
+    struct sockaddr_nl addr = { .nl_family = AF_NETLINK, .nl_pid = 0, .nl_groups = 1 };
+    int fd = socket(AF_NETLINK, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, NETLINK_KOBJECT_UEVENT);
+
+    if (fd < 0) {
+        return -1;
+    }
+
+    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+        close(fd);
+
+        return -1;
+    }
+
+    return fd;
+}
+
+static void drain_uevents(int uevent_fd) {
+    char buffer[USB_ACCESSORY_WORKER_UEVENT_BUFFER_SIZE];
+
+    while (uevent_fd >= 0 && recv(uevent_fd, buffer, sizeof(buffer), MSG_DONTWAIT) > 0) {
+        // Only used as a wakeup, the state is read with ioctl()
+    }
+}
+
+static int open_accessory_device(void) {
+    for (int attempt = 0; attempt < 30; attempt++) {
+        int fd = open(USB_ACCESSORY_WORKER_DEVICE_PATH, O_RDWR | O_CLOEXEC);
+
+        if (fd >= 0) {
+            return fd;
+        }
+
+        if (errno != EBUSY && errno != ENOENT && errno != ENODEV) {
+            break;
+        }
+
+        worker_sleep_us(100000);
+    }
+
+    LOG_E(usb_accessory_worker_log_tag, "Can`t open %s: %s", USB_ACCESSORY_WORKER_DEVICE_PATH, strerror(errno));
+
+    return -1;
+}
+
+static void log_accessory_strings(int fd) {
+    // Strings sent by the head unit with ACCESSORY_SEND_STRING: the best hint which
+    // head unit software we talk to
+    char manufacturer[256] = "", model[256] = "", description[256] = "", version[256] = "";
+
+    ioctl(fd, ACCESSORY_GET_STRING_MANUFACTURER, manufacturer);
+    ioctl(fd, ACCESSORY_GET_STRING_MODEL, model);
+    ioctl(fd, ACCESSORY_GET_STRING_DESCRIPTION, description);
+    ioctl(fd, ACCESSORY_GET_STRING_VERSION, version);
+
+    LOG_I(usb_accessory_worker_log_tag, "Head unit: manufacturer=\"%s\" model=\"%s\" description=\"%s\" version=\"%s\" audio=%d",
+          manufacturer, model, description, version, ioctl(fd, ACCESSORY_GET_AUDIO_MODE));
+}
+
+static wait_result_t wait_for_start(int fd, int uevent_fd) {
+    while (1) {
+        if (!video_receiver_is_connected()) {
+            return WAIT_NO_SOURCE;
+        }
+
+        int status = ioctl(fd, ACCESSORY_IS_START_REQUESTED);
+
+        if (status < 0) {
+            LOG_E(usb_accessory_worker_log_tag, "ACCESSORY_IS_START_REQUESTED failed: %s", strerror(errno));
+
+            return WAIT_ERROR;
+        }
+
+        if (status == 1) {
+            return WAIT_START_REQUESTED;
+        }
+
+        // Sleep until a uevent from f_accessory (GETPROTOCOL/SENDSTRING/START) or the poll interval
+        struct pollfd pfd = { .fd = uevent_fd, .events = POLLIN };
+
+        if (uevent_fd >= 0) {
+            if (poll(&pfd, 1, USB_ACCESSORY_WORKER_POLL_INTERVAL_MS) > 0) {
+                drain_uevents(uevent_fd);
+            }
+        } else {
+            worker_sleep_us(USB_ACCESSORY_WORKER_POLL_INTERVAL_MS * 1000);
+        }
+    }
+}
 
 #pragma mark - Internal methods implementation
 
-int usb_accessory_worker_start(void)
-{
-	while (1) {
-		pthread_t initial_device_thread_id;
-		gboolean initial_device_result = FALSE;
+int usb_accessory_worker_start(void) {
+    long retry_delay = USB_ACCESSORY_WORKER_RETRY_MIN_US;
+    int uevent_fd = open_uevent_socket();
 
-		// Await for video source connection
+    usb_active_accessory_install_signal_handler();
 
-		video_receiver_await_connection();
+    if (uevent_fd < 0) {
+        LOG_W(usb_accessory_worker_log_tag, "No uevent socket, polling the accessory state");
+    }
 
-		// When video source is connected 
+    while (1) {
+        gboolean failed = FALSE;
 
-		int result = pthread_create(
-			&initial_device_thread_id,
-			NULL,
-			usb_accessory_worker_initial_thread,
-			&initial_device_result
-		);
+        video_receiver_await_connection();
 
-		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+        if (usb_accessory_set_mode(USB_ACCESSORY_MODE_INITIAL) < 0) {
+            failed = TRUE;
+        } else {
+            int fd = open_accessory_device();
 
-		result = pthread_join(initial_device_thread_id, NULL);
+            if (fd < 0) {
+                failed = TRUE;
+            } else {
+                drain_uevents(uevent_fd);
 
-		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
+                LOG_I(usb_accessory_worker_log_tag, "Waiting for the head unit to start accessory mode ...");
 
-		if (initial_device_result == FALSE) {
-			usb_accessory_disable();
+                wait_result_t result = wait_for_start(fd, uevent_fd);
 
-			continue;
-		}
+                if (result == WAIT_START_REQUESTED) {
+                    log_accessory_strings(fd);
+                }
 
-		result = usb_active_accessory_create_and_wait(
-			USB_ACCESSORY_WORKER_USB_DRIVER_IO
-		);
+                close(fd);
 
-		USB_ACCESSORY_WORKER_USB_ASSUME_SUCCESS(result);
-	}
+                if (result == WAIT_START_REQUESTED) {
+                    int session_result = usb_active_accessory_run_session();
 
-	return 0;
-}
+                    failed = session_result < 0;
 
-#pragma mark - Private methods implementation
+                    if (session_result >= 0) {
+                        // A completed session is not a failure: start over quickly
+                        retry_delay = USB_ACCESSORY_WORKER_RETRY_MIN_US;
+                    }
+                } else {
+                    failed = result == WAIT_ERROR;
+                }
+            }
+        }
 
-void *usb_accessory_worker_initial_thread(void *arg)
-{
-	if (arg == NULL) {
-		return NULL;
-	}
+        usb_accessory_disable();
 
-	gboolean *result = (gboolean*)arg;
-	
-	LOG_I(usb_accessory_worker_log_tag, "Starting initial device ...");
+        if (failed) {
+            // Exponential backoff: a missing UDC or a broken driver must not burn the CPU
+            LOG_W(usb_accessory_worker_log_tag, "Retrying in %ld ms", retry_delay / 1000);
 
-	if (usb_accessory_reset() < 0) {
-		LOG_E(usb_accessory_worker_log_tag, "Can`t reset USB accessory!");
+            worker_sleep_us(retry_delay);
 
-		exit(EXIT_FAILURE);
-	}
+            retry_delay *= 2;
 
-	int usb_accessory = open(USB_ACCESSORY_WORKER_USB_DRIVER_IO, O_RDWR);
+            if (retry_delay > USB_ACCESSORY_WORKER_RETRY_MAX_US) {
+                retry_delay = USB_ACCESSORY_WORKER_RETRY_MAX_US;
+            }
+        }
+    }
 
-	if (usb_accessory < 0) {
-		*result = FALSE;
-
-		pthread_exit(NULL);
-
-		return NULL;
-	}
-
-	while (1)
-	{
-		int status = ioctl(usb_accessory, ACCESSORY_IS_START_REQUESTED);
-
-		if ((status < 0) || (video_receiver_is_connected() == FALSE)) {
-			*result = FALSE;
-
-			break;
-		} else if (status == 1) {
-			*result = TRUE;
-
-			break;
-		}
-
-		usleep(USB_ACCESSORY_WORKER_POLL_INTERVAL_US);
-	}
-
-	close(usb_accessory);
-
-	pthread_exit(NULL);
-
-	return NULL;
+    return 0;
 }

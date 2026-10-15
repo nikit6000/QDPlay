@@ -7,6 +7,7 @@
 #include <byteswap.h>
 #include <string.h>
 #include <errno.h>
+#include <stdio.h>
 #include "qd_control_receiver.h"
 
 // TODO: - Move header to common place
@@ -19,6 +20,7 @@
 #define QD_MESSAGING_SERVICE_KEY_FRAME_REQ_EVENT              (1)
 #define QD_MESSAGING_SERVICE_INPUT_EVENT                      (2)
 #define QD_MESSAGING_RECONNECT_DELAY_US                       (250000) // 250 ms
+#define QD_MESSAGING_SERVICE_MAX_MESSAGE_SIZE                 (64 * 1024)
 
 #define QD_MESSAGING_SERVICE_INPUT_EVENT_DOWN                 (0)
 #define QD_MESSAGING_SERVICE_INPUT_EVENT_UP                   (1)
@@ -53,6 +55,7 @@ int qd_input_socket = -1;
 #pragma mark - Private function prototypes
 
 void qd_input_process_touch(qd_touch_callback touch_callback, qd_control_parcel_input_t * input);
+static ssize_t qd_input_recv_all(int fd, uint8_t * buffer, size_t len);
 
 #pragma mark - Open function implementations
 
@@ -60,11 +63,11 @@ int qd_input_reconnect(void) {
 	int status = 0;
 
 	do {
-		if (qd_input_socket > 0) {
+		if (qd_input_socket >= 0) {
 			close(qd_input_socket);
 		}
 
-		qd_input_socket = socket(AF_LOCAL, SOCK_STREAM, 0);
+		qd_input_socket = socket(AF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0);
 
 		if (qd_input_socket <= 0) {
 			status = qd_input_socket;
@@ -94,7 +97,7 @@ int qd_input_process(
 	qd_control_parcel_header_t* header = NULL;
 	ssize_t received = 0;
 
-	if (qd_input_socket <= 0) {
+	if (qd_input_socket < 0) {
 		return -EIO;
 	}
 
@@ -108,10 +111,10 @@ int qd_input_process(
 		message_buffer_size = QD_MESSAGING_SERVICE_INITIAL_BUFFER_SIZE;
 	}
 
-	received = recv(qd_input_socket, message_buffer, sizeof(qd_control_parcel_header_t), 0);
+	received = qd_input_recv_all(qd_input_socket, message_buffer, sizeof(qd_control_parcel_header_t));
 
 	if (received != sizeof(qd_control_parcel_header_t)) {
-		printf("[%s] received incorrect data count! %d != %d\n", qd_input_tag, received, sizeof(qd_control_parcel_header_t));
+		printf("[%s] received incorrect data count! %zd != %zu\n", qd_input_tag, received, sizeof(qd_control_parcel_header_t));
 
 		return -ECONNRESET;
 	}
@@ -128,7 +131,7 @@ int qd_input_process(
 	uint32_t payload_size = bswap_32(header->payload_len);
 	uint32_t total_size = bswap_32(header->full_len);
 
-	if (sizeof(qd_control_parcel_header_t) + payload_size != total_size) {
+	if (sizeof(qd_control_parcel_header_t) + payload_size != total_size || total_size > QD_MESSAGING_SERVICE_MAX_MESSAGE_SIZE) {
 		printf("[%s] Bad message structure!\n ps: %d, ts: %d", qd_input_tag, payload_size, total_size);
 
 		return -EBADMSG;
@@ -147,9 +150,9 @@ int qd_input_process(
 	}
 
 	if (payload_size > 0) {
-		received = recv(qd_input_socket, message_buffer + sizeof(qd_control_parcel_header_t), payload_size, 0);
+		received = qd_input_recv_all(qd_input_socket, message_buffer + sizeof(qd_control_parcel_header_t), payload_size);
 		
-		if (received <= 0) {
+		if (received != (ssize_t)payload_size) {
 			printf("[%s] Connection closed!\n", qd_input_tag);
 
 			return -ECONNRESET;
@@ -158,14 +161,36 @@ int qd_input_process(
 
 	if (event_id == QD_MESSAGING_SERVICE_KEY_FRAME_REQ_EVENT) {
 		keyframe_callback();
-	} else if (event_id == QD_MESSAGING_SERVICE_INPUT_EVENT) {
+	} else if (event_id == QD_MESSAGING_SERVICE_INPUT_EVENT && total_size >= sizeof(qd_control_parcel_input_t)) {
 		qd_input_process_touch(touch_callback, (qd_control_parcel_input_t*)message_buffer);
 	}
+
+	// Other events (e.g. the active state notification of QDPlay) are not needed here
 
 	return 0;
 }
 
 #pragma mark - Private function implementations
+
+static ssize_t qd_input_recv_all(int fd, uint8_t * buffer, size_t len) {
+	size_t received_total = 0;
+
+	while (received_total < len) {
+		ssize_t received = recv(fd, buffer + received_total, len - received_total, 0);
+
+		if (received < 0 && errno == EINTR) {
+			continue;
+		}
+
+		if (received <= 0) {
+			return received_total > 0 ? (ssize_t)received_total : received;
+		}
+
+		received_total += (size_t)received;
+	}
+
+	return (ssize_t)received_total;
+}
 
 void qd_input_process_touch(qd_touch_callback touch_callback, qd_control_parcel_input_t * input) {
 	int16_t x1 = (int16_t)bswap_16(input->event.x);

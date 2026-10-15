@@ -27,6 +27,8 @@
 #define MESSAGE_V2_JSON_CMD_KEY_FRAME_REQ                   "KEY_FRAME_REQ"
 #define MESSAGE_V2_JSON_CMD_VIDEO_CTRL                      "VIDEO_CTRL"
 #define MESSAGE_V2_JSON_CMD_UPDATE_NOTIFY                   "UPDATE_NOTIFY"
+#define MESSAGE_V2_JSON_CMD_VIDEO_ARGS                      "VIDEO_ARGS"
+#define MESSAGE_V2_JSON_CMD_DISCONNECT_REQ                  "DISCONNECT_REQ"
 
 typedef struct {
 	/* 00 */ char mark[MESSAGE_COMMON_HEADER_V2_MARK_LEN];

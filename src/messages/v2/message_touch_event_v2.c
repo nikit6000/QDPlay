@@ -1,4 +1,6 @@
 #include <byteswap.h>
+#include <errno.h>
+#include <string.h>
 #include "messages/v2/message_common_header_v2.h"
 #include "messages/v2/message_touch_event_v2.h"
 
@@ -16,111 +18,52 @@ typedef struct {
     uint8_t touches_count;
 } __attribute__((packed)) message_touch_event_ext_v2_t;
 
-#pragma mark - Internal methods
+#pragma mark - Private methods
 
-message_touches_v2_t * message_touch_v2_init(void *message, size_t message_len) {
-    message_common_header_v2_t* header = NULL;
-    message_touches_v2_t* touches = NULL;
-    message_touch_event_ext_v2_t* touches_payload = NULL;
-    uint32_t full_message_len = 0;
-    uint32_t payload_len = 0;
+static float message_touch_v2_be_float(uint32_t raw) {
+    uint32_t value = bswap_32(raw);
+    float result;
 
-    if (message == NULL || message_len < sizeof(message_common_header_v2_t)) {
-        return NULL;
-    }
+    memcpy(&result, &value, sizeof(result));
 
-    header = (message_common_header_v2_t*)message;
-
-    if (header->msg_type != MESSAGE_COMMON_HEADER_V2_MSG_TYPE_TOUCH) {
-        return NULL;
-    }
-
-    if (header->source != MESSAGE_COMMON_HEADER_V2_SOURCE_CAR) {
-        return NULL;
-    }
-
-    full_message_len = bswap_32(header->full_message_len);
-
-    if (message_len < full_message_len) {
-        return NULL;
-    }
-
-    if (full_message_len <= sizeof(message_common_header_v2_t)) {
-        return NULL;
-    }
-
-    payload_len = full_message_len - sizeof(message_common_header_v2_t) - sizeof(message_touch_event_ext_v2_t);
-    
-    message += sizeof(message_common_header_v2_t);
-    message_len -= sizeof(message_common_header_v2_t);
-
-    touches_payload = (message_touch_event_ext_v2_t*)message;
-
-    message += sizeof(message_touch_event_ext_v2_t);
-    message_len -= sizeof(message_touch_event_ext_v2_t);
-
-    touches = (message_touches_v2_t*)malloc(sizeof(message_touches_v2_t));
-
-    if (touches == NULL) {
-        return NULL;
-    }
-    
-    touches->action_id = bswap_32(touches_payload->action_id);
-    touches->fingers_count = touches_payload->touches_count;
-
-    if ((payload_len / touches->fingers_count) != sizeof(message_touch_event_finger_v2_t)) {
-        message_touch_v2_free(touches);
-
-        return NULL;
-    }
-
-    touches->fingers = (message_touch_finger_v2_t**)malloc(touches->fingers_count * sizeof(message_touch_finger_v2_t*));
-
-    if (touches->fingers == NULL) {
-        message_touch_v2_free(touches);
-
-        return NULL;
-    }
-
-    for (size_t i = 0; i < touches->fingers_count; i++) {
-        message_touch_event_finger_v2_t *finger = (message_touch_event_finger_v2_t*)message;
-        message_touch_finger_v2_t *mapped_finger = (message_touch_finger_v2_t*)malloc(sizeof(message_touch_finger_v2_t));
-        uint32_t x = bswap_32(finger->x);
-        uint32_t y = bswap_32(finger->y);
-
-        if (mapped_finger == NULL) {
-            message_touch_v2_free(touches);
-
-            return NULL;
-        }
-
-        mapped_finger->finger_action = finger->finger_action;
-        mapped_finger->finger_id = finger->finger_id;
-        mapped_finger->x = *((float*)(&x));
-        mapped_finger->y = *((float*)(&y));
-
-        touches->fingers[i] = mapped_finger;
-
-        message += sizeof(message_touch_event_finger_v2_t);
-        message_len -= sizeof(message_touch_event_finger_v2_t);
-    }
-
-    return touches;
+    return result;
 }
 
-void message_touch_v2_free(message_touches_v2_t *touches) {
+#pragma mark - Internal methods
 
-    if (touches == NULL) {
-        return;
+int message_touch_v2_parse(const uint8_t *payload, size_t payload_len, message_touches_v2_t *touches) {
+    const message_touch_event_ext_v2_t *touches_payload = NULL;
+    size_t fingers_count = 0;
+
+    if (payload == NULL || touches == NULL || payload_len < sizeof(message_touch_event_ext_v2_t)) {
+        return -EINVAL;
     }
 
-    if (touches->fingers) {
-        for (size_t i = 0; i < touches->fingers_count; i++) {
-            free(touches->fingers[i]);
-        }
+    touches_payload = (const message_touch_event_ext_v2_t*)payload;
+    fingers_count = touches_payload->touches_count;
 
-        free(touches->fingers);
+    // Same layout as in the phone application: 5 bytes of header + 10 bytes per finger.
+    // Trailing bytes are USB padding and are ignored.
+
+    if (fingers_count == 0 ||
+        fingers_count > MESSAGE_TOUCH_V2_MAX_FINGERS ||
+        payload_len < sizeof(message_touch_event_ext_v2_t) + fingers_count * sizeof(message_touch_event_finger_v2_t)) {
+        return -EINVAL;
     }
 
-    free(touches);
+    memset(touches, 0, sizeof(*touches));
+
+    touches->action_id = bswap_32(touches_payload->action_id);
+    touches->fingers_count = fingers_count;
+
+    const message_touch_event_finger_v2_t *finger = (const message_touch_event_finger_v2_t*)(payload + sizeof(message_touch_event_ext_v2_t));
+
+    for (size_t i = 0; i < fingers_count; i++, finger++) {
+        touches->fingers[i].finger_id = finger->finger_id;
+        touches->fingers[i].finger_action = finger->finger_action;
+        touches->fingers[i].x = message_touch_v2_be_float(finger->x);
+        touches->fingers[i].y = message_touch_v2_be_float(finger->y);
+    }
+
+    return 0;
 }

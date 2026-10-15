@@ -12,16 +12,27 @@ extern "C" {
 typedef struct {
     uint16_t vid;
     uint16_t pid;
-    char* serial;
-    char* manufacturer;
-    char* product; 
+    const char* serial;
+    const char* manufacturer;
+    const char* product;
 } usb_accessory_data_t;
+
+typedef enum {
+    // Looks like an ordinary Android phone: the head unit starts the AOA handshake
+    USB_ACCESSORY_MODE_INITIAL = 0,
+    // Google accessory VID/PID: the head unit opens the bulk endpoints
+    USB_ACCESSORY_MODE_ACCESSORY
+} usb_accessory_mode_t;
 
 #pragma mark - Internal methods
 
-int usb_accessory_create_initial_gadget(void);
-int usb_accessory_reset(void);
-int usb_accessory_configure(void);
+// Creates the configfs gadget with the accessory function (removing a stale one).
+int usb_accessory_init(void);
+
+// Re-enumerates the gadget with the identity of the given mode.
+int usb_accessory_set_mode(usb_accessory_mode_t mode);
+
+// Detaches the gadget from the UDC: the head unit sees a disconnect.
 int usb_accessory_disable(void);
 
 #ifdef __cplusplus

@@ -96,3 +96,42 @@ install(
     DESTINATION
     bin
 )
+
+# Tests: real protocol and socket code on top of a fake USB layer.
+# cmake -DQDPLAY_BUILD_TESTS=ON .. && make qdplay_test && ./qdplay_test
+
+option(QDPLAY_BUILD_TESTS "Build QDPlay tests" OFF)
+
+if(QDPLAY_BUILD_TESTS)
+    set(QDPLAY_TEST_SRC ${PROJECT_SRC})
+    list(REMOVE_ITEM QDPLAY_TEST_SRC
+        "src/main.c"
+        "src/usb_accessory/usb_accessory.c"
+        "src/usb_accessory/usb_accessory_worker.c"
+        "src/usb_accessory/usb_active_accessory.c"
+    )
+
+    add_executable(qdplay_test
+        ${QDPLAY_TEST_SRC}
+        "tests/fake_usb.c"
+        "tests/qdplay_test.c"
+    )
+
+    target_include_directories(qdplay_test PRIVATE "tests")
+    target_compile_options(qdplay_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    target_link_options(qdplay_test PRIVATE -fsanitize=address,undefined)
+    target_link_libraries(qdplay_test ${GLIB2_LIBRARIES} pthread)
+
+    # The real accessory session code against a pseudo terminal instead of /dev/usb_accessory
+    set(QDPLAY_SESSION_TEST_SRC ${QDPLAY_TEST_SRC})
+    list(APPEND QDPLAY_SESSION_TEST_SRC "src/usb_accessory/usb_active_accessory.c")
+
+    add_executable(session_test
+        ${QDPLAY_SESSION_TEST_SRC}
+        "tests/session_test.c"
+    )
+
+    target_compile_options(session_test PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer -g)
+    target_link_options(session_test PRIVATE -fsanitize=address,undefined)
+    target_link_libraries(session_test ${GLIB2_LIBRARIES} pthread)
+endif()

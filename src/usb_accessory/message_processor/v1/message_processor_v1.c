@@ -25,6 +25,10 @@
 #define MESSAGE_PROCESSOR_V1_DEFAULT_SCREEN_MESSAGE_BUFFER_SIZE         (65535)
 #define MESSAGE_PROCESSOR_V1_PROBE_CHECK_INTERVAL_US                    (10000) // 10 ms
 #define MESSAGE_PROCESSOR_V1_DEFAULT_FRAME_INTERVAL_SEC                 (1)
+#define MESSAGE_PROCESSOR_V1_MAX_MESSAGE_SIZE                           (1024 * 1024)
+// The phone application does not watch the link in the legacy mode at all,
+// so be tolerant to head units that send heartbeats rarely
+#define MESSAGE_PROCESSOR_V1_READ_TIMEOUT_SEC                           (15)
 
 #define MESSAGE_PROCESSOR_V1_INPUT_EVENT_DOWN                           (-32768)
 #define MESSAGE_PROCESSOR_V1_INPUT_EVENT_UP                             (-32766)
@@ -60,7 +64,8 @@ const message_processor_t message_provessor_v1 = {
     .probe = message_processor_v1_probe,
     .run = message_processor_v1_run,
     .write_hb = message_processor_v1_write_hb,
-    .write_h264 = message_processor_v1_write_h264
+    .write_h264 = message_processor_v1_write_h264,
+    .read_timeout_sec = MESSAGE_PROCESSOR_V1_READ_TIMEOUT_SEC
 };
 
 #pragma mark - Internal methods implementaion
@@ -207,7 +212,7 @@ static gboolean message_processor_v1_run(void) {
             MESSAGE_PROCESSOR_V1_DEFAULT_CHUNK_SIZE
         );
     
-        if (readed < 0) {
+        if (readed <= 0) {
             LOG_E(message_processor_v1_tag, "Device disconnected!");
 
             status = FALSE;
@@ -275,20 +280,25 @@ static gboolean message_processor_v1_handle_app_msg(common_header_t * header, ui
     hu_message_t * response_message = NULL;
     gboolean status = TRUE;
     uint32_t total_len = bswap_32(header->total_size);
-    uint32_t payload_len = total_len - len;
+    uint32_t payload_len = 0;
     uint8_t* payload = NULL;
 
-    if (total_len == 0 || payload_len == 0) {
+    (void)response_message;
+
+    if (total_len <= len || total_len > MESSAGE_PROCESSOR_V1_MAX_MESSAGE_SIZE) {
+        LOG_E(message_processor_v1_tag, "Bad HU message size: %u", total_len);
+
         return FALSE;
     }
 
+    payload_len = total_len - len;
     payload = (uint8_t*)malloc(payload_len);
     
     if (!payload) {
         return FALSE;
     }
     
-    if ((payload_len > 0) && (usb_active_accessory_read(payload, payload_len) <= 0)) {
+    if (usb_active_accessory_read_message_tail(payload, 0, payload_len, payload_len) < 0) {
         free(payload);
 
         return FALSE;
@@ -299,7 +309,8 @@ static gboolean message_processor_v1_handle_app_msg(common_header_t * header, ui
     free(payload);
 
     if (!request_message) {
-        return FALSE;
+        // Unknown payload is not a reason to drop the link
+        return TRUE;
     }
 
     LOG_I(message_processor_v1_tag, "Receive HU: %s", request_message->logic_id);
@@ -310,6 +321,8 @@ static gboolean message_processor_v1_handle_app_msg(common_header_t * header, ui
     } else if (strcmp(request_message->logic_id, "BT_AUTO_CONNECTED") == 0) {
         status = message_processor_v1_reply_bt_auto_connected();
     }
+
+    hu_message_free(request_message);
 
     return status;
 }
@@ -345,7 +358,8 @@ static gboolean message_processor_v1_handle_cmd(common_header_t * header, uint8_
         messaging_service_send_key_frame_req();
 
     } else if (cmd == MESSAGE_CMD_HEARTBEAT){
-        LOG_I(message_processor_v1_tag, "Receive heardbeat cmd...");
+        // The phone application echoes heartbeats back to the head unit
+        status = message_processor_v1_write_hb();
 
     } else {
         LOG_W(message_processor_v1_tag, "Unprocessed cmd: %d", cmd);
@@ -512,7 +526,6 @@ static gboolean message_processor_v1_reply_start_seq(version_t* input_version) {
     uint8_t * response = NULL;
     upgrade_t * response_upgrade = NULL;
     version_t * response_version = NULL;
-    int write_result = -EINVAL;
 
     response = (uint8_t*)malloc(MESSAGE_PROCESSOR_V1_DEFAULT_CHUNK_SIZE);
 
@@ -529,6 +542,8 @@ static gboolean message_processor_v1_reply_start_seq(version_t* input_version) {
     response_version->out_app_height = input_version->car_height;
 
     LOG_I(message_processor_v1_tag, "Got screen parameters: w: %d, h: %d", bswap_32(input_version->car_width), bswap_32(input_version->car_height));
+
+    messaging_service_set_screen_size(bswap_32(input_version->car_width), bswap_32(input_version->car_height));
 
     if (usb_active_accessory_write((void*)response, MESSAGE_PROCESSOR_V1_DEFAULT_CHUNK_SIZE) <= 0) {
         free(response);
@@ -622,7 +637,17 @@ static gboolean message_processor_v1_handle_control(common_header_t * header, ui
 
 static gboolean message_processor_v1_handle_speech(common_header_t * header, uint8_t* buffer, size_t len) {
     uint32_t full_packet_len = ntohl(header->total_size);
-    uint8_t* response = (uint8_t*)malloc(full_packet_len);
+    uint8_t* response = NULL;
+
+    if (full_packet_len <= len) {
+        return TRUE;
+    }
+
+    if (full_packet_len > MESSAGE_PROCESSOR_V1_MAX_MESSAGE_SIZE) {
+        return FALSE;
+    }
+
+    response = (uint8_t*)malloc(full_packet_len);
     
     if (!response) {
         return FALSE;
@@ -630,7 +655,7 @@ static gboolean message_processor_v1_handle_speech(common_header_t * header, uin
     
     memcpy(response, buffer, len);
     
-    if (usb_active_accessory_read(response + len, full_packet_len - len) <= 0) {
+    if (usb_active_accessory_read_message_tail(response, len, full_packet_len, full_packet_len) < 0) {
         free(response);
         
         return FALSE;
