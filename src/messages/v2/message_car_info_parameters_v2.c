@@ -26,7 +26,7 @@ int message_car_info_parameters_v2_init(uint8_t* buffer, size_t len, message_car
 
     parameters_object = cJSON_GetObjectItem(root_object, MESSAGE_V2_JSON_PARAMETERS_KEY);
 
-    if (root_object == NULL) {
+    if (parameters_object == NULL || !cJSON_IsObject(parameters_object)) {
         cJSON_Delete(root_object);
 
         return -EINVAL;
@@ -35,7 +35,7 @@ int message_car_info_parameters_v2_init(uint8_t* buffer, size_t len, message_car
     width_item = cJSON_GetObjectItem(parameters_object, "CarWidth");
     height_item = cJSON_GetObjectItem(parameters_object, "CarHeight");
 
-    if (width_item == NULL || height_item == NULL) {
+    if (!cJSON_IsNumber(width_item) || !cJSON_IsNumber(height_item)) {
         cJSON_Delete(root_object);
 
         return -EINVAL;
@@ -43,6 +43,12 @@ int message_car_info_parameters_v2_init(uint8_t* buffer, size_t len, message_car
 
     obj->width = cJSON_GetNumberValue(width_item);
     obj->height = cJSON_GetNumberValue(height_item);
+
+    cJSON_Delete(root_object);
+
+    if (obj->width == 0 || obj->height == 0) {
+        return -EINVAL;
+    }
 
     return 0;
 }

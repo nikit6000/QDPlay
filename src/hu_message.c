@@ -111,59 +111,100 @@ hu_message_t* hu_message_init(const char * app_id, const char * logic_id, uint8_
     return message;
 }
 
+// Reads `digits` hex characters. Returns FALSE if the buffer is too short or the text is not hex.
+static int hu_message_read_hex(const uint8_t** cursor, const uint8_t* end, int digits, uint32_t* out) {
+    char number_buffer[HU_MESSAGE_ASSUME_NUM_BUFF_LEN];
+    char* parse_end = NULL;
+
+    if (end - *cursor < digits || digits >= HU_MESSAGE_ASSUME_NUM_BUFF_LEN) {
+        return 0;
+    }
+
+    memcpy(number_buffer, *cursor, digits);
+    number_buffer[digits] = '\0';
+
+    *out = (uint32_t)strtoul(number_buffer, &parse_end, 16);
+    *cursor += digits;
+
+    return parse_end == number_buffer + digits;
+}
+
+static char* hu_message_read_str(const uint8_t** cursor, const uint8_t* end, uint32_t len) {
+    char* result = NULL;
+
+    if ((uint32_t)(end - *cursor) < len) {
+        return NULL;
+    }
+
+    result = (char*)malloc(len + 1);
+
+    if (!result) {
+        return NULL;
+    }
+
+    memcpy(result, *cursor, len);
+    result[len] = '\0';
+    *cursor += len;
+
+    return result;
+}
+
 hu_message_t* hu_message_decode(const uint8_t* data, uint32_t len) {
+    const uint8_t* cursor = data;
+    const uint8_t* end = data + len;
+    uint32_t value = 0;
+    uint32_t total_len = 0;
+    uint32_t total_data_count = 0;
+    hu_message_t* message = NULL;
+
     HU_MESSAGE_ASSUME_NON_NULL(data);
 
-    char number_buffer[HU_MESSAGE_ASSUME_NUM_BUFF_LEN];
-    const uint8_t* cursor = data;
-    uint32_t total_len = 0;
-    uint8_t app_id_len = 0;
-    uint8_t logic_id_len = 0;
-    uint8_t total_data_count = 0;
-
-    if (memcmp(data, HU_MESSAGE_PACKET_MARK, HU_MESSAGE_PACKET_MARK_LEN) != 0) {
+    if (len < HU_MESSAGE_PACKET_MARK_LEN || memcmp(data, HU_MESSAGE_PACKET_MARK, HU_MESSAGE_PACKET_MARK_LEN) != 0) {
         return NULL;
     }
 
     cursor += HU_MESSAGE_PACKET_MARK_LEN;
 
-    hu_message_t* message = (hu_message_t*)malloc(sizeof(hu_message_t));
+    message = (hu_message_t*)calloc(1, sizeof(hu_message_t));
     HU_MESSAGE_ASSUME_NON_NULL(message);
-    memset(message, 0, sizeof(hu_message_t));
 
-    HU_MESSAGE_PACKET_PARSE_HEX_INT(message->flow_id, uint8_t, cursor, number_buffer);
-    HU_MESSAGE_PACKET_PARSE_HEX_INT(total_len, uint32_t, cursor, number_buffer);
+    if (!hu_message_read_hex(&cursor, end, 2, &value)) goto error;
+    message->flow_id = (uint8_t)value;
 
-    if (total_len > len) {
-        hu_message_free(message);
-        return NULL;
-    }
+    if (!hu_message_read_hex(&cursor, end, 8, &total_len) || total_len > len) goto error;
 
-    HU_MESSAGE_PACKET_PARSE_HEX_INT(app_id_len, uint8_t, cursor, number_buffer);
-    HU_MESSAGE_PACKET_PARSE_STR(message->app_id, app_id_len, cursor);
-    HU_MESSAGE_PACKET_PARSE_HEX_INT(logic_id_len, uint8_t, cursor, number_buffer);
-    HU_MESSAGE_PACKET_PARSE_STR(message->logic_id, logic_id_len, cursor);
-    HU_MESSAGE_PACKET_PARSE_HEX_INT(total_data_count, uint8_t, cursor, number_buffer);
+    // Everything below must stay inside the declared message
+    end = data + total_len;
+
+    if (!hu_message_read_hex(&cursor, end, 2, &value)) goto error;
+    if (!(message->app_id = hu_message_read_str(&cursor, end, value))) goto error;
+
+    if (!hu_message_read_hex(&cursor, end, 2, &value)) goto error;
+    if (!(message->logic_id = hu_message_read_str(&cursor, end, value))) goto error;
+
+    if (!hu_message_read_hex(&cursor, end, 2, &total_data_count)) goto error;
 
     if (total_data_count == 0) {
         return message;
     }
 
-    message->data = (hu_message_data_t*)malloc(total_data_count * sizeof(hu_message_data_t));
-    HU_MESSAGE_ASSUME_NON_NULL(message->data);
+    message->data = (hu_message_data_t*)calloc(total_data_count, sizeof(hu_message_data_t));
 
-    for (int i = 0; i < total_data_count; i++) {
-        int item_len = 0;
-        hu_message_data_t item = NULL;
-        
-        HU_MESSAGE_PACKET_PARSE_HEX_INT(item_len, uint32_t, cursor, number_buffer);
-        HU_MESSAGE_PACKET_PARSE_STR(item, item_len, cursor);
+    if (!message->data) goto error;
 
-        message->data[i] = item;
+    for (uint32_t i = 0; i < total_data_count; i++) {
+        if (!hu_message_read_hex(&cursor, end, 8, &value)) goto error;
+        if (!(message->data[i] = hu_message_read_str(&cursor, end, value))) goto error;
+
         message->data_count++;
     }
 
     return message;
+
+error:
+    hu_message_free(message);
+
+    return NULL;
 }
 
 uint8_t* hu_message_encode(const hu_message_t* message, uint16_t chunk_len, uint32_t* out_len) {

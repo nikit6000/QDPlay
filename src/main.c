@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <stdio.h>
+#include <signal.h>
 #include "usb_accessory/usb_accessory.h"
 #include "usb_accessory/usb_accessory_worker.h"
 #include "services/video_receiver/video_receiver.h"
@@ -16,8 +17,9 @@ int main(void) {
 		return EXIT_FAILURE;
 	}
 
-	if (usb_accessory_create_initial_gadget() < 0) {
-		return EXIT_FAILURE;
+	// Not fatal: the worker retries creating the gadget until the kernel side is ready
+	if (usb_accessory_init() != 0) {
+		g_printerr("USB gadget is not ready yet, will retry\n");
 	}
 
 	return usb_accessory_worker_start();

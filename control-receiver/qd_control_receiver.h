@@ -1,6 +1,9 @@
 #ifndef _QD_CONTROL_RECEIVER_H_
 #define _QD_CONTROL_RECEIVER_H_
 
+#include <stdbool.h>
+#include <stdint.h>
+
 typedef int (*qd_touch_callback)(bool inPress, uint16_t inX, uint16_t inY);
 typedef int (*qd_keyframe_callback)(void);
 

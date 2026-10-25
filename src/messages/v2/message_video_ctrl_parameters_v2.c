@@ -23,7 +23,7 @@ int message_video_ctrl_parameters_v2_init(const char* buffer, size_t len, messag
 
     parameters_object = cJSON_GetObjectItem(root_object, MESSAGE_V2_JSON_PARAMETERS_KEY);
 
-    if (root_object == NULL) {
+    if (parameters_object == NULL || !cJSON_IsObject(parameters_object)) {
         cJSON_Delete(root_object);
 
         return -EINVAL;

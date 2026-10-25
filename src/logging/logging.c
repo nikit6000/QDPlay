@@ -34,7 +34,7 @@ void logger_log(logging_level_t level, const gchar *tag, const gchar *format, ..
 
 	va_end(args);
 
-	g_print(formatted);
+	g_print("%s", formatted);
 
 	g_free((void *)full_format);
 	g_free((void *)formatted);

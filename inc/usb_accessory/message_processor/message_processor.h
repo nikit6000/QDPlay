@@ -2,7 +2,7 @@
 #define _MESSAGE_PROCESSOR_H_
 
 #include <glib.h>
-#include <stdint.h> 
+#include <stdint.h>
 #include <pthread.h>
 
 typedef struct {
@@ -22,6 +22,9 @@ typedef struct
     message_processor_run run;
     message_processor_write_hb write_hb;
     message_processor_write_h264 write_h264;
+
+    // Head unit is considered lost if nothing was received during this interval
+    uint32_t read_timeout_sec;
 } message_processor_t;
 
 #endif

@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <string.h>
 #include <unistd.h>
+#include <stdio.h>
+#include <errno.h>
 #include "qd_video_sender.h"
 
 #pragma mark - Private definitions
@@ -56,11 +58,13 @@ qd_screen_impl_ref qd_screen_connect(uint32_t width, uint32_t height, uint32_t f
 
 	// Init screen object
 
-	screen = (qd_screen_impl_ref)malloc(sizeof(*screen));
+	screen = (qd_screen_impl_ref)calloc(1, sizeof(*screen));
 
 	if (screen == NULL) {
 		return NULL;
 	}
+
+	screen->sink_fd = -1;
 
 	// Setup screen data
 
@@ -82,7 +86,7 @@ qd_screen_impl_ref qd_screen_connect(uint32_t width, uint32_t height, uint32_t f
 
 	// Connect to the video sink
 
-	screen->sink_fd = socket(AF_LOCAL, SOCK_STREAM, 0);
+	screen->sink_fd = socket(AF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0);
 
 	if (screen->sink_fd < 0) {
 		qd_screen_close(screen);
@@ -187,14 +191,33 @@ int qd_screen_send_data(
 
 	memcpy(screen->buffer + header_size, data, len);
 
-	// Send buffer to QD sink
+	// Send the whole buffer: a partial frame would desynchronize the QDPlay stream parser.
+	// MSG_NOSIGNAL keeps us alive if QDPlay restarts.
 
-	return send(
-		screen->sink_fd, 
-		screen->buffer,
-		total_size,
-		0
-	);
+	size_t sent_total = 0;
+
+	while (sent_total < total_size) {
+		ssize_t sent = send(
+			screen->sink_fd,
+			screen->buffer + sent_total,
+			total_size - sent_total,
+			MSG_NOSIGNAL
+		);
+
+		if (sent < 0 && errno == EINTR) {
+			continue;
+		}
+
+		if (sent <= 0) {
+			printf("[%s]: Can`t send frame: %s\n", qd_screen_tag, strerror(errno));
+
+			return -1;
+		}
+
+		sent_total += (size_t)sent;
+	}
+
+	return (int)sent_total;
 }
 
 void qd_screen_update(qd_screen_impl_ref screen, uint32_t width, uint32_t height) {
@@ -219,7 +242,7 @@ void qd_screen_close(qd_screen_impl_ref screen) {
 		return;
 	}
 
-	if (screen->sink_fd > 0) {
+	if (screen->sink_fd >= 0) {
 		close(screen->sink_fd);
 	}
 
